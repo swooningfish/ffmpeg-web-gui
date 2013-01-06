@@ -1,0 +1,15 @@
+#ignore thumbnails created by windows
+Thumbs.db
+#ignore the following directories
+converted/*
+logs/*
+upload/*
+#misc
+.DS_Store?
+ehthumbs.db
+Icon?
+_notes
+dwsync.xml
+.svn
+.hg
+!.gitignore
