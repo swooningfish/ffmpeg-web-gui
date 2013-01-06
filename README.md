@@ -24,7 +24,7 @@ The script also generates 5 stills from the video allowing you to use these as p
 
 To get a copy of this code you need to pull the git repository you can doe this via the following command.
 <pre>
-  git clone https://code.google.com/p/ffmpeg-web-gui/
+  git clone https://github.com/swooingfish/ffmpeg-web-gui.git
 </pre>
 
 To update your copy run the following command in the ffmpeg-web-gui directory.
