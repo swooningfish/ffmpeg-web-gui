@@ -345,7 +345,7 @@ if (isset($_FILES) && $_FILES) {
 <body>
 
 	<h1>ffmpeg web gui</h1>
-	<?
+	<?php
 	if ($error) {
 		echo '<div class="error">'.$error.'</div>';
 	}
