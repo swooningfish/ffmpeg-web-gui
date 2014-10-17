@@ -4,8 +4,8 @@
 	Name    : ffmpeg web gui
     Author  : Greg Colley
     Created : 03/12/2011
-    Update  : 04/12/2011
-    Version : 0.1 beta
+    Update  : 17/10/2014
+    Version : 0.2 beta
 
     This is a upload an convert php script for ffmpeg. Allowing you to convert video files to html5 ready video via ffmpeg.
 	
@@ -383,7 +383,6 @@ if (isset($_FILES) && $_FILES) {
 				<option value="1000">1000 kbit/s</option>
 				<option value="900">900 kbit/s</option>
 				<option value="800">800 kbit/s</option>
-				<option value="800">800 kbit/s</option>
 				<option value="768">768 kbit/s</option>
 				<option value="700" selected="selected">700 kbit/s</option>
 				<option value="360">360 kbit/s</option>
@@ -430,7 +429,7 @@ if (isset($_FILES) && $_FILES) {
 				<option value="128" selected="selected">128 kbps</option>
 				<option value="96">96 kbps </option>
 				<option value="32">32 kbps </option>
-				<option value="32">8 kbps (Telephone quality)</option>
+				<option value="8">8 kbps (Telephone quality)</option>
 			</select>
 		</div>
 
