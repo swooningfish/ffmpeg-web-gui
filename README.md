@@ -4,8 +4,8 @@ ffmpeg-web-gui
 Name    : ffmpeg web gui
 Author  : Greg Colley
 Created : 03/12/2011
-Update  : 04/12/2011
-Version : 0.1 beta
+Update  : 17/10/2014
+Version : 0.2 beta
 </pre>
 
 This is a PHP script for FFmpeg which allows you to upload a video and convert it into html5 (mp4 h264, webm, ogv). Using a simple graphical user interface (GUI) you are also able to fine tune the ffmpeg command and optimise the these following options:-
