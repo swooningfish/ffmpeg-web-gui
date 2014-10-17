@@ -65,7 +65,7 @@ $renderHTML5 		= false;
 
 $newline 			= "\n";
 $fileSplit 			= '_';
-$timeStamp 			= mktime();
+$timeStamp 			= time();
 $filePath 			= realpath('./').'/';
 $webPath 			= '/ffmpeg_web_gui/';
 $ffmpegCommand 		= '/usr/local/bin/ffmpeg'; // x264, xbix, ora, gsm, lame, faac, swscale, 0.5
