@@ -393,7 +393,7 @@ if (isset($_FILES) && $_FILES) {
 			<label for="file">Frame Rate:</label>  <!-- -b:v 700k-->
 			<select name="video_framerate">
 				<option value="30" selected="selected">30 fps</option>
-				<option value="25">25 fps/option>
+				<option value="25">25 fps</option>
 				<option value="15">15 fps</option>
 				<option value="12">12 fps</option>
 			</select>
