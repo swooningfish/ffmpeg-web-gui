@@ -55,7 +55,11 @@ function logText($file, $text){
 set_time_limit(0);
 ini_set('display_errors','On');
 
-$maxFileSize = 0; // 314572800; // 300MB
+
+// 104857600 = 100MB
+// 209715200 = 200MB
+// 314572800 = 300MB
+$maxFileSize = 104857600;
 $allowedMimeTypes = array('video/avi','video/mp4','video/mpeg','video/quicktime','video/x-msvideo','video/msvideo','video/x-ms-wmv');
 
 $error 				= false;
@@ -76,6 +80,16 @@ $convertedLocation 	= 'converted/';
 
 
 if (isset($_FILES) && $_FILES) {
+
+	if (!is_writable($uploadLocation)) {
+		echo "Upload dir needs write permission";
+		/*
+		# example file permissions fix for Apache users on Linux
+		sudo chown -R www-data:www-data upload/
+		sudo chmod -R 755 upload/
+		*/
+		exit;
+	}
 
 	// Custom Settings
 
@@ -357,7 +371,7 @@ if (isset($_FILES) && $_FILES) {
 	<form action="" method="post"enctype="multipart/form-data">
 		<div class="fieldset">
 			<label for="file">Video file:</label>
-			<input type="file" name="file" id="file" />
+			<input type="file" name="file" id="file" accept="video/*" />
 		</div>
 
 
