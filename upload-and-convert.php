@@ -173,11 +173,11 @@ if (isset($_FILES) && $_FILES) {
 					if (isset($_POST['encoding_x264'])) {
 
 
-						$command = $ffmpegCommand.' -i '.$filePath.$file_uploaded.' -vcodec libx264  -vsync 1  -bt 50k ';
+						$command = escapeshellcmd($ffmpegCommand.' -i '.$filePath.$file_uploaded.' -vcodec libx264  -vsync 1  -bt 50k ');
 						if ($audioEnabled) {
 							$command = $command.' -acodec libfaac ';
 						}
-						$command = $command.$customParams.'  '.$filePath.$convertedLocation.$uploadedFilename.'_x264.mp4  2>&1';
+						$command = escapeshellcmd($command.$customParams.'  '.$filePath.$convertedLocation.$uploadedFilename.'_x264.mp4  2>&1');
 						exec($command, $output, $status);
 						$output = 'File: '.$file_uploaded."\n".implode("\n", $output);
 						// Log to file
@@ -188,7 +188,7 @@ if (isset($_FILES) && $_FILES) {
 						// This is a useful tool if you're showing your H.264 MP4 videos on the web.
 						// It relocates some data in the video to allow playback to begin before the file is completely downloaded.
 						// Usage: qt-faststart input.mp4 output.mp4.
-						$command = $qt_faststart.' '.$filePath.$convertedLocation.$uploadedFilename.'_x264.mp4 '.$filePath.$convertedLocation.$uploadedFilename.'_x264_qt_faststart.mp4  2>&1';
+						$command = escapeshellcmd($qt_faststart.' '.$filePath.$convertedLocation.$uploadedFilename.'_x264.mp4 '.$filePath.$convertedLocation.$uploadedFilename.'_x264_qt_faststart.mp4  2>&1');
 						exec($command, $output, $status);
 						$output = 'File: '.$file_uploaded."\n".implode("\n", $output);
 						// Log to file
@@ -203,7 +203,7 @@ if (isset($_FILES) && $_FILES) {
 						if ($audioEnabled) {
 							$command = $command.' -acodec libvorbis ';
 						}
-						$command = $command.$customParams.' '.$filePath.$convertedLocation.$uploadedFilename.'.ogv  2>&1';
+						$command = escapeshellcmd($command.$customParams.' '.$filePath.$convertedLocation.$uploadedFilename.'.ogv  2>&1');
 						exec($command, $output, $status);
 						$output = 'File: '.$file_uploaded."\n".implode("\n", $output);
 						// Log to file
@@ -213,7 +213,7 @@ if (isset($_FILES) && $_FILES) {
 
 					// Webm file
 					if (isset($_POST['encoding_webm'])) {
-						$command = $ffmpegCommand.' -i '.$filePath.$file_uploaded.$customParams.$filePath.$convertedLocation.$uploadedFilename.'.webm  2>&1';
+						$command = escapeshellcmd($ffmpegCommand.' -i '.$filePath.$file_uploaded.$customParams.$filePath.$convertedLocation.$uploadedFilename.'.webm  2>&1');
 						exec($command, $output, $status);
 						$output = 'File: '.$file_uploaded."\n".implode("\n", $output);
 						// Log to file
@@ -223,7 +223,7 @@ if (isset($_FILES) && $_FILES) {
 
 					// Screen shots
 					if (isset($_POST['encoding_stills'])) {
-						$command = $ffmpegCommand.' -i '.$filePath.$file_uploaded.' -s '.$videoSize.' -r 1 -vframes 5 -ss 00:01 -y '.$filePath.$convertedLocation.$uploadedFilename.'_stills_%d.png  2>&1';
+						$command = escapeshellcmd($ffmpegCommand.' -i '.$filePath.$file_uploaded.' -s '.$videoSize.' -r 1 -vframes 5 -ss 00:01 -y '.$filePath.$convertedLocation.$uploadedFilename.'_stills_%d.png  2>&1');
 						exec($command, $output, $status);
 						$output = 'File: '.$file_uploaded."\n".implode("\n", $output);
 						// Log to file
