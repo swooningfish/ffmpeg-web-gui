@@ -178,6 +178,7 @@ if (isset($_FILES) && $_FILES) {
 							$command = $command.' -acodec libfaac ';
 						}
 						$command = $command.$customParams.'  '.$filePath.$convertedLocation.$uploadedFilename.'_x264.mp4  2>&1';
+						$command = escapeshellcmd($command);
 						exec($command, $output, $status);
 						$output = 'File: '.$file_uploaded."\n".implode("\n", $output);
 						// Log to file
@@ -189,6 +190,7 @@ if (isset($_FILES) && $_FILES) {
 						// It relocates some data in the video to allow playback to begin before the file is completely downloaded.
 						// Usage: qt-faststart input.mp4 output.mp4.
 						$command = $qt_faststart.' '.$filePath.$convertedLocation.$uploadedFilename.'_x264.mp4 '.$filePath.$convertedLocation.$uploadedFilename.'_x264_qt_faststart.mp4  2>&1';
+						$command = escapeshellcmd($command);
 						exec($command, $output, $status);
 						$output = 'File: '.$file_uploaded."\n".implode("\n", $output);
 						// Log to file
@@ -204,6 +206,7 @@ if (isset($_FILES) && $_FILES) {
 							$command = $command.' -acodec libvorbis ';
 						}
 						$command = $command.$customParams.' '.$filePath.$convertedLocation.$uploadedFilename.'.ogv  2>&1';
+						$command = escapeshellcmd($command);
 						exec($command, $output, $status);
 						$output = 'File: '.$file_uploaded."\n".implode("\n", $output);
 						// Log to file
@@ -214,6 +217,7 @@ if (isset($_FILES) && $_FILES) {
 					// Webm file
 					if (isset($_POST['encoding_webm'])) {
 						$command = $ffmpegCommand.' -i '.$filePath.$file_uploaded.$customParams.$filePath.$convertedLocation.$uploadedFilename.'.webm  2>&1';
+						$command = escapeshellcmd($command);
 						exec($command, $output, $status);
 						$output = 'File: '.$file_uploaded."\n".implode("\n", $output);
 						// Log to file
@@ -224,6 +228,7 @@ if (isset($_FILES) && $_FILES) {
 					// Screen shots
 					if (isset($_POST['encoding_stills'])) {
 						$command = $ffmpegCommand.' -i '.$filePath.$file_uploaded.' -s '.$videoSize.' -r 1 -vframes 5 -ss 00:01 -y '.$filePath.$convertedLocation.$uploadedFilename.'_stills_%d.png  2>&1';
+						$command = escapeshellcmd($command);
 						exec($command, $output, $status);
 						$output = 'File: '.$file_uploaded."\n".implode("\n", $output);
 						// Log to file
