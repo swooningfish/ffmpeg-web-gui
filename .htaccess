@@ -7,26 +7,55 @@
 	AddType video/webm .webm
 </IfModule>
 
-AddOutputFilterByType DEFLATE text/html text/plain text/xml application/xml application/xhtml+xml text/javascript text/css application/x-javascript
-BrowserMatch ^Mozilla/4 gzip-only-text/html
-BrowserMatch ^Mozilla/4.0[678] no-gzip
+# Block direct access to settings files
+<FilesMatch "^(\.user\.ini|config(\.local)?\.php)$">
+	<IfModule mod_authz_core.c>
+		Require all denied
+	</IfModule>
+	<IfModule !mod_authz_core.c>
+		Order allow,deny
+		Deny from all
+	</IfModule>
+</FilesMatch>
 
-BrowserMatch bMSIE !no-gzip !gzip-only-text/html
+<IfModule mod_headers.c>
+	Header always set X-Content-Type-Options "nosniff"
+	Header always set Referrer-Policy "same-origin"
+</IfModule>
 
-<ifModule mod_expires.c>
-  ExpiresActive On
-  ExpiresDefault "access plus 1 seconds"
-  ExpiresByType text/html "access plus 1 seconds"
-  ExpiresByType image/gif "access plus 2592000 seconds"
-  ExpiresByType image/jpeg "access plus 2592000 seconds"
-  ExpiresByType image/png "access plus 2592000 seconds"
-  ExpiresByType text/css "access plus 604800 seconds"
-  ExpiresByType text/javascript "access plus 216000 seconds"
-  ExpiresByType application/x-javascript "access plus 216000 seconds"
-</ifModule>
+<IfModule mod_deflate.c>
+	<IfModule mod_filter.c>
+		AddOutputFilterByType DEFLATE text/html text/plain text/xml application/xml application/xhtml+xml text/javascript text/css application/x-javascript
+	</IfModule>
+</IfModule>
 
-php_value memory_limit 1000M
-php_value upload_max_filesize 1000M
-php_value post_max_size 1500M
-php_value max_execution_time 20000
-php_value max_input_time 20000
+<IfModule mod_expires.c>
+	ExpiresActive On
+	ExpiresDefault "access plus 1 seconds"
+	ExpiresByType text/html "access plus 1 seconds"
+	ExpiresByType image/gif "access plus 2592000 seconds"
+	ExpiresByType image/jpeg "access plus 2592000 seconds"
+	ExpiresByType image/png "access plus 2592000 seconds"
+	ExpiresByType text/css "access plus 604800 seconds"
+	ExpiresByType text/javascript "access plus 216000 seconds"
+	ExpiresByType application/x-javascript "access plus 216000 seconds"
+</IfModule>
+
+# PHP limits for mod_php. PHP-FPM / CGI read the same values from .user.ini.
+# Keep upload_max_filesize in line with max_file_size in config.php.
+<IfModule mod_php.c>
+	php_value memory_limit 256M
+	php_value upload_max_filesize 100M
+	php_value post_max_size 110M
+	php_value max_execution_time 3600
+	php_value max_input_time 3600
+	php_flag display_errors Off
+</IfModule>
+<IfModule mod_php7.c>
+	php_value memory_limit 256M
+	php_value upload_max_filesize 100M
+	php_value post_max_size 110M
+	php_value max_execution_time 3600
+	php_value max_input_time 3600
+	php_flag display_errors Off
+</IfModule>

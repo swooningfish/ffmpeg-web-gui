@@ -4,8 +4,8 @@ ffmpeg-web-gui
 Name    : ffmpeg web gui
 Author  : Greg Colley
 Created : 03/12/2011
-Update  : 17/10/2014
-Version : 0.2 beta
+Update  : 07/11/2026
+Version : 0.3 beta
 </pre>
 
 This is a PHP script for FFmpeg which allows you to upload a video and convert it into html5 (mp4 h264, webm, ogv). Using a simple graphical user interface (GUI) you are also able to fine tune the ffmpeg command and optimise the these following options:-
@@ -20,18 +20,47 @@ This is a PHP script for FFmpeg which allows you to upload a video and convert i
 * Amount of channels (Stereo or Mono)
 * And other features to come!
 
-The script also generates 5 stills from the video allowing you to use these as placement holders. The ffmpeg web GUI script also generates the html for the html5 player, with flash fall-back. HTML5 video is fully supported in iPads and latest web browsers.
+The script also generates up to 5 stills from the video allowing you to use these as placement holders, and generates an HTML5 player page for the converted videos. HTML5 video is supported by all current browsers.
 
-To get a copy of this code you need to pull the git repository you can doe this via the following command.
-<pre>
-  git clone https://github.com/swooningfish/ffmpeg-web-gui.git
-</pre>
+Requirements
+------------
+
+* PHP 7.4 or later
+* ffmpeg and ffprobe 4.3 or later, built with libx264, libvpx 1.7+ (VP9) and libopus. libtheora and libvorbis are only needed for the Ogg output.
+* Apache with `AllowOverride All` for this folder (at minimum `AuthConfig Limit FileInfo Indexes Options`). The `.htaccess` files block web access to uploads, logs and settings, and **Apache ignores them under `AllowOverride None`**, which is the default on many systems. On other web servers, deny web access to `upload/`, `logs/`, `config.php`, `config.local.php` and `.user.ini` yourself. For extra safety, point `upload_dir` and `log_dir` at folders outside the web root.
+* Conversion runs inside the web request, so the request can last several minutes. With PHP-FPM, raise Apache's `ProxyTimeout` (or `Timeout`) and the pool's `request_terminate_timeout`, otherwise long conversions end with a 504 error.
+
+Installation
+------------
+
+1. Get a copy of the code:
+   <pre>git clone https://github.com/swooningfish/ffmpeg-web-gui.git</pre>
+2. Give the web server user write access to `upload/`, `converted/` and `logs/`, for example:
+   <pre>sudo chown -R www-data:www-data upload/ converted/ logs/</pre>
+3. Generate a password hash:
+   <pre>php -r "echo password_hash('your password', PASSWORD_DEFAULT), PHP_EOL;"</pre>
+4. Create `config.local.php` with the hash and the paths to ffmpeg and ffprobe. Any setting in `config.php` can be overridden here:
+   <pre>&lt;?php
+return array(
+    'password_hash' =&gt; '$2y$10$...',
+    'ffmpeg'        =&gt; '/usr/bin/ffmpeg',
+    'ffprobe'       =&gt; '/usr/bin/ffprobe',
+);</pre>
+5. Open `upload-and-convert.php` in your browser and log in.
+
+The upload limit is 100MB. To change it, update `max_file_size` in your config and `upload_max_filesize` / `post_max_size` in `.htaccess` (mod_php) or `.user.ini` (PHP-FPM).
 
 To update your copy run the following command in the ffmpeg-web-gui directory.
 <pre>
   git pull
 </pre>
 
+Security notes
+--------------
+
+* The app requires a password unless you set `'require_login' => false`. Only do that if the site is already protected some other way.
+* Only one conversion runs at a time, and conversion runs inside the web request, so keep the app away from untrusted users.
+* Converted files are stored in `converted/<random id>/` and can be downloaded by anyone who has the link. Delete old folders regularly.
+* Uploaded originals are deleted after conversion by default (`delete_upload_after_convert`).
+
 Comments and suggestion on the code, and future feature requests are welcome.
-
-

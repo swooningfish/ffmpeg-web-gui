@@ -1,0 +1,23 @@
+# Only serve the files the converter generates. Everything else, including
+# directory listings and any script, is denied.
+<IfModule mod_authz_core.c>
+	Require all denied
+	<FilesMatch "^[a-z0-9_-]+\.(mp4|webm|ogv|png|html)$">
+		Require all granted
+	</FilesMatch>
+</IfModule>
+<IfModule !mod_authz_core.c>
+	Order allow,deny
+	Deny from all
+	<FilesMatch "^[a-z0-9_-]+\.(mp4|webm|ogv|png|html)$">
+		Order deny,allow
+		Allow from all
+	</FilesMatch>
+</IfModule>
+
+<IfModule mod_headers.c>
+	Header always set X-Content-Type-Options "nosniff"
+	<FilesMatch "\.html$">
+		Header always set Content-Security-Policy "default-src 'none'; media-src 'self'; img-src 'self'; style-src 'unsafe-inline'"
+	</FilesMatch>
+</IfModule>
