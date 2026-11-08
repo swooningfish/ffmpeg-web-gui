@@ -1,4 +1,4 @@
-<?php /* Result of the conversion that was just run. $result comes from convertUpload(). */ ?>
+<?php /* Results of a finished conversion. $result comes from jobResult(). */ ?>
 <?php if ($result['failed']): ?>
 <p class="notice notice-error" role="alert">
 	Failed: <?php echo h(implode(', ', $result['failed'])); ?>. See the ffmpeg log in the logs folder for details.

@@ -43,11 +43,11 @@
 		var bar = status.querySelector('progress');
 		var text = status.querySelector('[data-upload-text]');
 		var messages = document.querySelector('.form-messages');
-		var maxBytes = parseInt(fileInput.getAttribute('data-max-bytes'), 10) || 0;
 		var buttonText = button.textContent;
 
 		function checkSize() {
 			var file = fileInput.files[0];
+			var maxBytes = parseInt(fileInput.getAttribute('data-max-bytes'), 10) || 0;
 			if (file && maxBytes && file.size > maxBytes) {
 				fileInput.setCustomValidity('This file is ' + formatBytes(file.size) + '; the limit is ' + formatBytes(maxBytes) + '.');
 			} else {
