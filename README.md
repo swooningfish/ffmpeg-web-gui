@@ -1,5 +1,8 @@
 ffmpeg-web-gui
 ==============
+
+[![Tests](https://github.com/swooningfish/ffmpeg-web-gui/actions/workflows/tests.yml/badge.svg?branch=main)](https://github.com/swooningfish/ffmpeg-web-gui/actions/workflows/tests.yml)
+
 <pre>
 Name    : ffmpeg web gui
 Author  : Greg Colley
