@@ -2,9 +2,9 @@ name: Tests
 
 on:
   # Branches with a pull request are tested by the pull_request event, so
-  # pushes only need testing on master
+  # pushes only need testing on main
   push:
-    branches: [master]
+    branches: [main]
   pull_request:
   workflow_dispatch:
 
