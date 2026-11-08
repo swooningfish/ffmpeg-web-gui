@@ -54,10 +54,15 @@ for _ in $(seq 1 30); do
 done
 
 echo "Creating test videos in $WORK"
-ffmpeg -v error -f lavfi -i testsrc2=size=640x480:rate=25:duration=7 -f lavfi -i sine=frequency=440:duration=7 \
+# -nostdin: this script itself arrives on stdin (bash -s), and ffmpeg would
+# otherwise read keypresses from it and eat part of the script
+ffmpeg -nostdin -v error -f lavfi -i testsrc2=size=640x480:rate=25:duration=7 -f lavfi -i sine=frequency=440:duration=7 \
 	-c:v libx264 -b:v 4M -pix_fmt yuv420p -c:a aac -shortest "$WORK/main.mp4"
-ffmpeg -v error -f lavfi -i testsrc=size=160x120:rate=25:duration=3 -f lavfi -i sine=duration=3 \
+ffmpeg -nostdin -v error -f lavfi -i testsrc=size=160x120:rate=25:duration=3 -f lavfi -i sine=duration=3 \
 	-c:v mpeg4 -c:a libmp3lame -shortest "$WORK/small.avi"
+for video in main.mp4 small.avi; do
+	[ -s "$WORK/$video" ] || { echo "Could not create test video $video"; exit 1; }
+done
 printf '<?php echo "pwned"; ?>' > "$WORK/shell.php"
 printf 'this is not a video\n' > "$WORK/fake.mp4"
 printf '#EXTM3U\n#EXT-X-MEDIA-SEQUENCE:0\n#EXTINF:10.0,\nfile:///etc/passwd\n#EXT-X-ENDLIST\n' > "$WORK/playlist.mp4"
