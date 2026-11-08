@@ -14,8 +14,7 @@ if ($config['max_duration'] > 0) {
 	<p>Upload a video to get web-ready video files, still images and an HTML5 player page.</p>
 </hgroup>
 
-<?php require __DIR__ . '/messages.php'; ?>
-<?php if ($result) { require __DIR__ . '/results.php'; } ?>
+<div class="form-messages"><?php require __DIR__ . '/messages.php'; ?></div>
 
 <form action="" method="post" enctype="multipart/form-data" class="convert-form">
 	<input type="hidden" name="csrf" value="<?php echo h($csrfToken); ?>">
@@ -62,6 +61,12 @@ if ($config['max_duration'] > 0) {
 
 	<div class="submit-row">
 		<button type="submit">Upload and convert</button>
-		<small>Conversion runs while you wait and can take several minutes for large files. Keep this tab open.</small>
+		<small>Videos are converted one at a time in the background. You can close this page once the upload has finished and come back to the result under Recent conversions.</small>
+	</div>
+	<div class="upload-status" hidden>
+		<progress value="0" max="100" aria-label="Upload progress"></progress>
+		<small aria-live="polite" data-upload-text></small>
 	</div>
 </form>
+
+<?php require __DIR__ . '/recent.php'; ?>

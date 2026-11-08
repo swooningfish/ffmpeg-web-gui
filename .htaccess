@@ -16,7 +16,7 @@ DirectoryIndex upload-and-convert.php
 # The pattern is relative to this folder, so it works in any install path.
 <IfModule mod_rewrite.c>
 	RewriteEngine On
-	RewriteRule ^(\.git|\.github|vendor|docker|node_modules|test-results|playwright-report)(/|$) - [F]
+	RewriteRule ^(\.git|\.github|vendor|docker|secrets|node_modules|test-results|playwright-report)(/|$) - [F]
 </IfModule>
 # Without mod_rewrite, still block .git and .github
 <IfModule !mod_rewrite.c>
@@ -28,7 +28,7 @@ DirectoryIndex upload-and-convert.php
 </IfModule>
 
 # Block settings, dot files and development files
-<FilesMatch "^(\..*|config(\.local)?\.php|composer\.(json|lock)|package(-lock)?\.json|playwright\.config\.ts|phpunit\.xml(\.dist)?|docker-compose\.yml)$">
+<FilesMatch "^(\..*|config(\.local)?\.php|composer\.(json|lock)|package(-lock)?\.json|playwright\.config\.ts|phpunit\.xml(\.dist)?|docker-compose(\.prod)?\.yml)$">
 	<IfModule mod_authz_core.c>
 		Require all denied
 	</IfModule>

@@ -1,12 +1,39 @@
-# Local test server for ffmpeg web gui.
+# Local test server for ffmpeg web gui: the web app and the worker that
+# converts queued videos. For a real server use docker-compose.prod.yml.
 #   docker compose up -d --build
 #   open http://localhost:8080/upload-and-convert.php  (password: test-password)
 #   docker compose exec -T app bash -s < tests/e2e/run.sh   (end-to-end tests)
+#   npm run test:ui                                          (browser tests)
+#   docker compose down -v   (-v also deletes the uploads, conversions and logs)
+
+x-app: &app
+  build:
+    context: .
+    dockerfile: docker/Dockerfile
+    target: test
+  image: ffmpeg-web-gui:test
+  # The web app and the worker share these folders
+  volumes:
+    - upload:/var/www/html/upload
+    - converted:/var/www/html/converted
+    - logs:/var/www/html/logs
+    - jobs:/var/www/html/jobs
+
 services:
   app:
-    build:
-      context: .
-      dockerfile: docker/Dockerfile
+    <<: *app
     ports:
       # Only reachable from this computer: the test password is public
       - "127.0.0.1:8080:80"
+
+  worker:
+    <<: *app
+    command: ["php", "/var/www/html/src/worker.php"]
+    user: www-data
+    init: true
+
+volumes:
+  upload:
+  converted:
+  logs:
+  jobs:

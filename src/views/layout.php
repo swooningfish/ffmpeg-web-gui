@@ -11,11 +11,16 @@ if (!$loginConfigured) {
 } elseif (!$loggedIn) {
 	$pageTitle = 'Log in';
 	$view      = 'login.php';
+} elseif ($jobId !== null) {
+	$pageTitle = $job ? $job['name'] : 'Conversion not found';
+	$view      = 'job.php';
 } else {
 	$pageTitle = 'Convert a video';
 	$view      = 'convert.php';
 }
-$assetVersion = '0.4';
+// Without JavaScript, a job page reloads itself until the conversion finishes
+$autoRefresh  = $job && in_array($job['status'], array('queued', 'running'), true);
+$assetVersion = '0.5';
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -27,6 +32,10 @@ $assetVersion = '0.4';
 	<link rel="icon" href="assets/icon.svg" type="image/svg+xml">
 	<link rel="stylesheet" href="assets/vendor/pico/pico.min.css?v=2.0.6">
 	<link rel="stylesheet" href="assets/app.css?v=<?php echo h($assetVersion); ?>">
+	<script src="assets/app.js?v=<?php echo h($assetVersion); ?>" defer></script>
+	<?php if ($autoRefresh): ?>
+	<noscript><meta http-equiv="refresh" content="5"></noscript>
+	<?php endif; ?>
 </head>
 <body>
 	<header class="app-header">

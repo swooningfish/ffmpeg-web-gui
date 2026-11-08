@@ -77,7 +77,7 @@ jobs:
           npm ci --no-audit --no-fund
           npx playwright install --with-deps chromium
 
-      # A fresh server of its own: the e2e job ends by locking its IP out of logging in
+      # A fresh server of its own, so these tests don't depend on what the e2e job left behind
       - name: Start the test server
         run: docker compose up -d --build
 
