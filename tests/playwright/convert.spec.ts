@@ -93,9 +93,9 @@ test.describe('Converting a video', () => {
 		// Results
 		await expect(page.getByRole('alert')).toHaveCount(0);
 		const result = page.getByRole('article').filter({ has: page.getByRole('heading', { name: 'Converted clip.mp4' }) });
-		await expect(result.getByRole('link', { name: /^Download MP4 \([\d.]+ (KB|MB)\)$/ })).toBeVisible();
-		await expect(result.getByRole('link', { name: /^Download WebM/ })).toBeVisible();
-		await expect(result.getByRole('link', { name: /^Download Ogg/ })).toHaveCount(0);
+		await expect(result.getByRole('button', { name: /^Download MP4 \([\d.]+ (KB|MB)\)$/ })).toBeVisible();
+		await expect(result.getByRole('button', { name: /^Download WebM/ })).toBeVisible();
+		await expect(result.getByRole('button', { name: /^Download Ogg/ })).toHaveCount(0);
 
 		const stills = result.getByRole('img', { name: /^Still \d of \d$/ });
 		await expect(stills).toHaveCount(5); // one a second from 0:01 of the 7 second clip
@@ -104,14 +104,14 @@ test.describe('Converting a video', () => {
 		}
 
 		// Downloads are real video files
-		const mp4 = await result.getByRole('link', { name: /^Download MP4/ }).getAttribute('href');
+		const mp4 = await result.getByRole('button', { name: /^Download MP4/ }).getAttribute('href');
 		const response = await page.request.get(mp4!);
 		expect(response.status()).toBe(200);
 		expect(response.headers()['content-type']).toContain('video/mp4');
 		expect((await response.body()).length).toBeGreaterThan(1000);
 
 		// The player page loads and the browser can play one of its sources
-		await result.getByRole('link', { name: 'Open the HTML5 player' }).click();
+		await result.getByRole('button', { name: 'Open the HTML5 player' }).click();
 		const video = page.locator('video');
 		await expect(video).toHaveAttribute('poster', /_still_\d\.png$/);
 		await expect.poll(() => video.evaluate((v: HTMLVideoElement) => v.readyState), { timeout: 20_000 }).toBeGreaterThanOrEqual(1);
@@ -158,7 +158,7 @@ test.describe('Without JavaScript', () => {
 		await page.getByRole('button', { name: 'Upload and convert' }).click();
 		await expect(page).toHaveURL(JOB_URL);
 		await waitForResults(page);
-		await expect(page.getByRole('link', { name: /^Download MP4/ })).toBeVisible();
+		await expect(page.getByRole('button', { name: /^Download MP4/ })).toBeVisible();
 	});
 
 	test('a refused upload shows its error on the form', async ({ page }) => {

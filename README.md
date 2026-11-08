@@ -150,6 +150,7 @@ Then run `docker compose -f docker-compose.prod.yml up -d`. Copying `config.loca
 ### Troubleshooting
 
 * **`docker: command not found`, or "Cannot connect to the Docker daemon"**: install Docker, or start Docker Desktop and wait until it says it's running.
+* **Docker Desktop on Windows says "Virtualization support not detected" or "unable to start"**: Docker needs WSL 2. Open PowerShell as administrator, run `wsl --install --no-distribution`, restart Windows, then start Docker Desktop again. If it still fails, turn on virtualization (Intel VT-x or AMD-V/SVM) in your computer's BIOS/UEFI settings.
 * **`unknown command: docker compose`** or **`'compose' is not a docker command`**: you have the old Compose v1. Update Docker, or install the Compose plugin.
 * **"port is already allocated"**: something else is using port 8080. For the test setup, change `127.0.0.1:8080:80` in `docker-compose.yml` to another port, such as `127.0.0.1:8081:80`, then open http://localhost:8081/. For a server, set `FFMPEG_GUI_PORT=8081` in `.env`.
 * **"secret password_hash: file not found"** (server setup): you skipped step 2, or ran it in another folder. `secrets/password_hash` must be inside the `ffmpeg-web-gui` folder.
