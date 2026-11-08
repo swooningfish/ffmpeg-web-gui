@@ -8,4 +8,5 @@ services:
       context: .
       dockerfile: docker/Dockerfile
     ports:
-      - "8080:80"
+      # Only reachable from this computer: the test password is public
+      - "127.0.0.1:8080:80"

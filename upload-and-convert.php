@@ -29,7 +29,9 @@ if (is_file(__DIR__ . '/config.local.php')) {
 	}
 	$config = array_replace($config, $localConfig);
 }
-set_time_limit((int)$config['max_execution_time']);
+// A little longer than the conversion deadline, so ffmpeg is always stopped
+// and cleaned up by convertUpload() before PHP gives up
+set_time_limit($config['max_execution_time'] > 0 ? (int)$config['max_execution_time'] + 60 : 0);
 
 $options    = formOptions();
 $checkboxes = formCheckboxes();
@@ -46,7 +48,9 @@ header("Content-Security-Policy: default-src 'self'; style-src 'self' 'unsafe-in
 session_set_cookie_params(array(
 	'httponly' => true,
 	'samesite' => 'Lax',
-	'secure'   => !empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off',
+	'secure'   => $config['secure_cookie'] !== null
+		? (bool)$config['secure_cookie']
+		: !empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off',
 ));
 session_start();
 if (empty($_SESSION['csrf'])) {
@@ -71,13 +75,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 		$errors[] = 'Your session expired. Please try again.';
 	} elseif ($action === 'login' && $loginConfigured && $config['require_login']) {
 		$password = isset($_POST['password']) && is_string($_POST['password']) ? $_POST['password'] : '';
-		if (password_verify($password, $config['password_hash'])) {
-			session_regenerate_id(true);
-			$_SESSION['logged_in'] = true;
-			$loggedIn = true;
-		} else {
-			sleep(1); // slow down password guessing
-			$errors[] = 'Incorrect password.';
+		$ip = isset($_SERVER['REMOTE_ADDR']) ? (string)$_SERVER['REMOTE_ADDR'] : '';
+		try {
+			$wait = loginAttemptStart($config, $ip);
+			if ($wait > 0) {
+				$errors[] = 'Too many incorrect passwords. Please try again in ' . ceil($wait / 60) . ' minute(s).';
+			} elseif (password_verify($password, $config['password_hash'])) {
+				loginSucceeded($config, $ip);
+				session_regenerate_id(true);
+				$_SESSION['logged_in'] = true;
+				$loggedIn = true;
+			} else {
+				sleep(1); // slow down password guessing
+				$errors[] = 'Incorrect password.';
+			}
+		} catch (RuntimeException $e) {
+			$errors[] = $e->getMessage();
 		}
 	} elseif ($action === 'logout') {
 		$_SESSION = array();

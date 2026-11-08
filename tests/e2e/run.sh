@@ -197,10 +197,39 @@ for path in upload/ upload/planted.php logs/ "logs/$LOG_NAME" logs/convert.lock 
 done
 rm -f "$WEBROOT/converted/${ANY_JOB#converted/}/planted.php" "$WEBROOT/upload/planted.php"
 
+echo "Web access to repository and development files"
+mkdir -p "$WEBROOT/.git" "$WEBROOT/.github" "$WEBROOT/vendor" "$WEBROOT/emptydir"
+echo '[remote "origin"]' > "$WEBROOT/.git/config"
+echo 'name: x' > "$WEBROOT/.github/ci.yml"
+echo '<?php echo "pwned";' > "$WEBROOT/vendor/autoload.php"
+for path in .git/ .git/config .github/ci.yml vendor/ vendor/autoload.php docker/ docker/Dockerfile 	composer.json phpunit.xml.dist docker-compose.yml .gitignore .gitattributes .htaccess emptydir/; do
+	code=$(status_of "$BASE/$path")
+	expect "/$path is blocked ($code)" [ "$code" = "403" ]
+done
+rm -rf "$WEBROOT/.git" "$WEBROOT/.github" "$WEBROOT/vendor" "$WEBROOT/emptydir"
+expect "the folder URL opens the app" sh -c "curl -s '$BASE/' | grep -q 'ffmpeg web gui'"
+
 # ---------------------------------------------------------------------------
 echo "Logout"
 curl -s -c "$JAR" -b "$JAR" -o "$PAGE" -F "csrf=$CSRF" -F action=logout "$APP"
 expect "logout shows the login form again" page_has 'value="login"'
+
+# ---------------------------------------------------------------------------
+echo "Login lockout"
+CSRF=$(csrf_from "$PAGE")
+for _ in 1 2 3 4 5; do
+	curl -s -c "$JAR" -b "$JAR" -o "$PAGE" -F "csrf=$CSRF" -F action=login -F password=wrong "$APP"
+done
+expect "five wrong passwords are each rejected" page_has 'Incorrect password.'
+curl -s -c "$JAR" -b "$JAR" -o "$PAGE" -F "csrf=$CSRF" -F action=login -F "password=$PASSWORD" "$APP"
+expect "the correct password is refused after five wrong ones" page_has 'Too many incorrect passwords.'
+expect "the lockout does not log in" page_lacks 'value="logout"'
+JAR2="$WORK/cookies2"
+curl -s -c "$JAR2" -b "$JAR2" -o "$PAGE" "$APP"
+CSRF2=$(csrf_from "$PAGE")
+curl -s -c "$JAR2" -b "$JAR2" -o "$PAGE" -F "csrf=$CSRF2" -F action=login -F "password=$PASSWORD" "$APP"
+expect "a new session is locked out too" page_has 'Too many incorrect passwords.'
+rm -f "$WEBROOT/logs/login_failures.json"
 
 echo
 echo "$passed passed, $failed failed"

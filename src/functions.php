@@ -151,33 +151,73 @@ function slugify($name)
 	return $slug !== '' ? $slug : 'video';
 }
 
+/** Exit code runCommand() returns when it stopped a program that ran out of time. */
+const EXIT_TIMED_OUT = -2;
+
 /**
  * Run a program without a shell. Every argument is passed to the program
  * as-is, so nothing in them can be read as a shell command or split into
- * extra arguments. Returns the exit code. stderr goes to a temporary file
- * so a chatty program can never block on a full pipe.
+ * extra arguments. Returns the exit code, -1 if the program could not be
+ * started, or EXIT_TIMED_OUT if it was stopped after $timeout seconds
+ * (0 = no limit). stdout and stderr go to temporary files so a chatty
+ * program can never block on a full pipe.
  */
-function runCommand(array $args, &$stdout, &$stderr)
+function runCommand(array $args, &$stdout, &$stderr, $timeout = 0)
 {
 	$stdout = '';
 	$stderr = '';
-	$errorFile = tempnam(sys_get_temp_dir(), 'ffgui');
+	$outFile = tempnam(sys_get_temp_dir(), 'ffgui');
+	$errFile = tempnam(sys_get_temp_dir(), 'ffgui');
+	if ($outFile === false || $errFile === false) {
+		$outFile && @unlink($outFile);
+		$errFile && @unlink($errFile);
+		$stderr = 'Could not create temporary files in ' . sys_get_temp_dir();
+		return -1;
+	}
 	$descriptors = array(
 		0 => array('file', DIRECTORY_SEPARATOR === '\\' ? 'NUL' : '/dev/null', 'r'),
-		1 => array('pipe', 'w'),
-		2 => array('file', $errorFile, 'w'),
+		1 => array('file', $outFile, 'w'),
+		2 => array('file', $errFile, 'w'),
 	);
 	$process = proc_open($args, $descriptors, $pipes);
 	if (!is_resource($process)) {
-		@unlink($errorFile);
+		@unlink($outFile);
+		@unlink($errFile);
 		$stderr = 'Could not start ' . $args[0];
 		return -1;
 	}
-	$stdout = stream_get_contents($pipes[1]);
-	fclose($pipes[1]);
-	$code = proc_close($process);
-	$stderr = (string)file_get_contents($errorFile);
-	@unlink($errorFile);
+
+	// Wait for the program, stopping it if it runs out of time. SIGTERM first
+	// so ffmpeg can close its files, then SIGKILL if it hasn't stopped in 5s.
+	$start      = microtime(true);
+	$stoppingAt = null;
+	$killed     = false;
+	while (true) {
+		$status = proc_get_status($process);
+		if (!$status['running']) {
+			$code = $status['exitcode'];
+			break;
+		}
+		$now = microtime(true);
+		if ($stoppingAt === null && $timeout > 0 && $now - $start >= $timeout) {
+			$stoppingAt = $now;
+			proc_terminate($process);
+		} elseif ($stoppingAt !== null && !$killed && $now - $stoppingAt >= 5) {
+			$killed = true;
+			proc_terminate($process, 9);
+		}
+		usleep($now - $start < 1 ? 10000 : 100000);
+	}
+	proc_close($process);
+
+	$stdout = (string)file_get_contents($outFile);
+	$stderr = (string)file_get_contents($errFile);
+	@unlink($outFile);
+	@unlink($errFile);
+	if ($stoppingAt !== null) {
+		$stderr .= "\nStopped after the time limit of " . $timeout . ' seconds.';
+		return EXIT_TIMED_OUT;
+	}
 	return $code;
 }
 
@@ -188,11 +228,94 @@ function writeLog(array $config, $name, $text)
 }
 
 /** Run ffmpeg/ffprobe, log the command and its messages, and return the exit code. */
-function runLogged(array $config, $logName, array $args, &$stdout = null)
+function runLogged(array $config, $logName, array $args, &$stdout = null, $timeout = 0)
 {
-	$code = runCommand($args, $stdout, $stderr);
+	$code = runCommand($args, $stdout, $stderr, $timeout);
 	writeLog($config, $logName, implode(' ', array_map('escapeshellarg', $args)) . "\nExit code: " . $code . "\n" . $stderr);
 	return $code;
+}
+
+
+// ---------------------------------------------------------------------------
+// Login throttling
+// ---------------------------------------------------------------------------
+
+/**
+ * Seconds $ip has to wait before it may try another password. $failures
+ * maps each IP address to array('count' => wrong passwords in a row,
+ * 'last' => time of the last one). After $maxFailures wrong passwords, each
+ * further try has to wait $lockout seconds after the previous one.
+ */
+function loginWaitSeconds(array $failures, $ip, $now, $maxFailures, $lockout)
+{
+	if (!isset($failures[$ip]['count'], $failures[$ip]['last']) || $failures[$ip]['count'] < $maxFailures) {
+		return 0;
+	}
+	return max(0, (int)$failures[$ip]['last'] + (int)$lockout - (int)$now);
+}
+
+/**
+ * Read and update the stored login failures while holding a lock, so
+ * parallel requests can't slip extra guesses in. $update receives the
+ * failures and returns array(new failures, result); the result is returned.
+ * The file lives in log_dir, so the limit covers every session.
+ */
+function updateLoginFailures(array $config, callable $update)
+{
+	$handle = @fopen($config['log_dir'] . 'login_failures.json', 'c+');
+	if (!$handle) {
+		throw new RuntimeException('The logs folder needs write permission for the web server user.');
+	}
+	try {
+		flock($handle, LOCK_EX);
+		$failures = json_decode((string)stream_get_contents($handle), true);
+		list($failures, $result) = $update(is_array($failures) ? $failures : array());
+		ftruncate($handle, 0);
+		rewind($handle);
+		fwrite($handle, json_encode($failures));
+		fflush($handle);
+		return $result;
+	} finally {
+		flock($handle, LOCK_UN);
+		fclose($handle);
+	}
+}
+
+/**
+ * Call before checking a password. Returns 0 and counts the attempt as a
+ * failure (until loginSucceeded() clears it), or returns the seconds to wait
+ * if $ip has to wait first. Counting up front means a burst of parallel
+ * guesses can't get past the limit.
+ */
+function loginAttemptStart(array $config, $ip, $now = null)
+{
+	if ($config['max_login_failures'] <= 0) {
+		return 0; // no limit
+	}
+	$now = $now === null ? time() : $now;
+	return updateLoginFailures($config, function (array $failures) use ($config, $ip, $now) {
+		// Forget addresses that haven't failed for a day
+		foreach ($failures as $key => $entry) {
+			if (!isset($entry['last']) || $entry['last'] < $now - 86400) {
+				unset($failures[$key]);
+			}
+		}
+		$wait = loginWaitSeconds($failures, $ip, $now, $config['max_login_failures'], $config['login_lockout']);
+		if ($wait === 0) {
+			$count = isset($failures[$ip]['count']) ? (int)$failures[$ip]['count'] : 0;
+			$failures[$ip] = array('count' => $count + 1, 'last' => $now);
+		}
+		return array($failures, $wait);
+	});
+}
+
+/** Clear the failures for $ip after a correct password. */
+function loginSucceeded(array $config, $ip)
+{
+	updateLoginFailures($config, function (array $failures) use ($ip) {
+		unset($failures[$ip]);
+		return array($failures, null);
+	});
 }
 
 
@@ -411,6 +534,17 @@ function convertUpload(array $config, array $options, array $post, array $files)
 		throw new RuntimeException('Another conversion is running. Please try again in a few minutes.');
 	}
 
+	// Every ffmpeg / ffprobe run shares this deadline. Stopping them here,
+	// before the web server gives up on the request, means the lock and the
+	// upload are always cleaned up and no ffmpeg is left running on its own.
+	$deadline = $config['max_execution_time'] > 0 ? time() + (int)$config['max_execution_time'] : 0;
+	$timeLeft = function () use ($deadline) {
+		return $deadline ? max(1, $deadline - time()) : 0;
+	};
+	$outOfTime = function () use ($deadline) {
+		return $deadline && time() >= $deadline;
+	};
+
 	// Files are stored under random names; the original name is never used in a path
 	$jobId      = bin2hex(random_bytes(8));
 	$baseName   = slugify(pathinfo($file['name'], PATHINFO_FILENAME));
@@ -425,7 +559,7 @@ function convertUpload(array $config, array $options, array $post, array $files)
 		// 3. Confirm it really is a video in a container we accept
 		$probeArgs = array($config['ffprobe'], '-v', 'error', '-protocol_whitelist', 'file',
 			'-show_entries', 'format=format_name:stream=codec_type:stream_disposition=attached_pic', '-of', 'json', $uploadPath);
-		$code = runLogged($config, 'ffprobe', $probeArgs, $probeOutput);
+		$code = runLogged($config, 'ffprobe', $probeArgs, $probeOutput, $timeLeft());
 		if ($code !== 0 || !isAllowedVideo($probeOutput)) {
 			throw new RuntimeException('That file is not a supported video.');
 		}
@@ -448,21 +582,27 @@ function convertUpload(array $config, array $options, array $post, array $files)
 		$made   = array();
 		$failed = array();
 		foreach ($selected as $format) {
+			if ($outOfTime()) {
+				$failed[] = $format['label'] . ' (time limit reached)';
+				continue;
+			}
 			$outName = $baseName . '.' . $format['ext'];
-			$code = runLogged($config, 'ffmpeg', array_merge($inputArgs, $format['args'], $sizeLimitArgs, array($jobDir . $outName)));
+			$code = runLogged($config, 'ffmpeg', array_merge($inputArgs, $format['args'], $sizeLimitArgs, array($jobDir . $outName)), $unused, $timeLeft());
 			if ($code === 0 && is_file($jobDir . $outName) && filesize($jobDir . $outName) > 0) {
 				$made[] = array('label' => $format['label'], 'file' => $outName, 'type' => $format['type']);
 			} else {
 				@unlink($jobDir . $outName);
-				$failed[] = $format['label'] . ' (exit code ' . $code . ')';
+				$failed[] = $format['label'] . ($code === EXIT_TIMED_OUT ? ' (time limit reached)' : ' (exit code ' . $code . ')');
 			}
 		}
 
 		// Up to five stills, one a second starting one second in
 		$stills = array();
-		if ($wantStills) {
+		if ($wantStills && $outOfTime()) {
+			$failed[] = 'Stills (time limit reached)';
+		} elseif ($wantStills) {
 			$stillArgs = array('-ss', '1', '-vf', 'fps=1,' . scaleFilter($settings['video_size']), '-frames:v', '5', $jobDir . $baseName . '_still_%d.png');
-			runLogged($config, 'ffmpeg', array_merge($inputArgs, $stillArgs));
+			runLogged($config, 'ffmpeg', array_merge($inputArgs, $stillArgs), $unused, $timeLeft());
 			for ($i = 1; $i <= 5; $i++) {
 				if (is_file($jobDir . $baseName . '_still_' . $i . '.png')) {
 					$stills[] = $baseName . '_still_' . $i . '.png';

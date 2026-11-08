@@ -9,7 +9,7 @@ RUN apt-get update \
 	&& rm -rf /var/lib/apt/lists/*
 
 # Modules used by the .htaccess files, and AllowOverride All for the app
-RUN a2enmod headers expires deflate filter
+RUN a2enmod headers expires deflate filter rewrite
 COPY docker/apache-app.conf /etc/apache2/conf-enabled/zz-app.conf
 
 COPY . /var/www/html/

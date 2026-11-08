@@ -325,4 +325,92 @@ final class FunctionsTest extends TestCase
 		$this->assertSame('{}', $stdout);
 		$this->assertSame('warn', $stderr);
 	}
+
+	public function testRunCommandStopsAProgramThatRunsTooLong()
+	{
+		$start = microtime(true);
+		$code = runCommand(array(PHP_BINARY, '-r', 'echo "started"; sleep(30);'), $stdout, $stderr, 2);
+		$this->assertSame(EXIT_TIMED_OUT, $code);
+		$this->assertLessThan(10, microtime(true) - $start);
+		$this->assertSame('started', $stdout);
+		$this->assertStringContainsString('time limit of 2 seconds', $stderr);
+	}
+
+	public function testRunCommandWithoutTimeoutWaitsForTheProgram()
+	{
+		$code = runCommand(array(PHP_BINARY, '-r', 'usleep(1500000); echo "done";'), $stdout, $stderr, 0);
+		$this->assertSame(0, $code);
+		$this->assertSame('done', $stdout);
+	}
+
+	// --- login throttling --------------------------------------------------
+
+	private $logDir;
+
+	private function loginConfig($maxFailures = 5, $lockout = 300)
+	{
+		$this->logDir = sys_get_temp_dir() . '/ffgui_login_' . getmypid() . '_' . mt_rand() . '/';
+		mkdir($this->logDir);
+		return array('log_dir' => $this->logDir, 'max_login_failures' => $maxFailures, 'login_lockout' => $lockout);
+	}
+
+	protected function tearDown(): void
+	{
+		if ($this->logDir) {
+			@unlink($this->logDir . 'login_failures.json');
+			@rmdir($this->logDir);
+			$this->logDir = null;
+		}
+	}
+
+	public function testLoginWaitSeconds()
+	{
+		$failures = array('1.2.3.4' => array('count' => 5, 'last' => 1000));
+		$this->assertSame(300, loginWaitSeconds($failures, '1.2.3.4', 1000, 5, 300));
+		$this->assertSame(100, loginWaitSeconds($failures, '1.2.3.4', 1200, 5, 300));
+		$this->assertSame(0, loginWaitSeconds($failures, '1.2.3.4', 1300, 5, 300));
+		$this->assertSame(0, loginWaitSeconds($failures, '1.2.3.4', 1000, 6, 300));
+		$this->assertSame(0, loginWaitSeconds($failures, '5.6.7.8', 1000, 5, 300));
+	}
+
+	public function testLoginIsLockedAfterTooManyFailures()
+	{
+		$config = $this->loginConfig(5, 300);
+		for ($i = 0; $i < 5; $i++) {
+			$this->assertSame(0, loginAttemptStart($config, '1.2.3.4', 1000 + $i));
+		}
+		$this->assertSame(296, loginAttemptStart($config, '1.2.3.4', 1008));
+		$this->assertSame(0, loginAttemptStart($config, '5.6.7.8', 1008), 'other addresses are not affected');
+
+		// After the lockout, one more try, then another wait
+		$this->assertSame(0, loginAttemptStart($config, '1.2.3.4', 1304));
+		$this->assertSame(300, loginAttemptStart($config, '1.2.3.4', 1304));
+	}
+
+	public function testCorrectPasswordClearsFailures()
+	{
+		$config = $this->loginConfig(2, 300);
+		loginAttemptStart($config, '1.2.3.4', 1000);
+		loginAttemptStart($config, '1.2.3.4', 1001);
+		loginSucceeded($config, '1.2.3.4');
+		$this->assertSame(0, loginAttemptStart($config, '1.2.3.4', 1002));
+	}
+
+	public function testOldFailuresAreForgotten()
+	{
+		$config = $this->loginConfig(2, 300);
+		loginAttemptStart($config, '1.2.3.4', 1000);
+		loginAttemptStart($config, '1.2.3.4', 1001);
+		$this->assertSame(0, loginAttemptStart($config, '1.2.3.4', 1001 + 86401));
+		$this->assertSame(0, loginAttemptStart($config, '1.2.3.4', 1001 + 86402), 'count started again from zero');
+	}
+
+	public function testLoginLimitCanBeTurnedOff()
+	{
+		$config = $this->loginConfig(0, 300);
+		for ($i = 0; $i < 10; $i++) {
+			$this->assertSame(0, loginAttemptStart($config, '1.2.3.4', 1000));
+		}
+		$this->assertFileDoesNotExist($this->logDir . 'login_failures.json');
+	}
 }

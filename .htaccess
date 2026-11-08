@@ -7,8 +7,27 @@
 	AddType video/webm .webm
 </IfModule>
 
-# Block direct access to settings files
-<FilesMatch "^(\.user\.ini|config(\.local)?\.php)$">
+# No directory listings; the folder URL opens the app
+Options -Indexes
+DirectoryIndex upload-and-convert.php
+
+# Block repository and development folders (.git, .github, vendor, docker).
+# The pattern is relative to this folder, so it works in any install path.
+<IfModule mod_rewrite.c>
+	RewriteEngine On
+	RewriteRule ^(\.git|\.github|vendor|docker)(/|$) - [F]
+</IfModule>
+# Without mod_rewrite, still block .git and .github
+<IfModule !mod_rewrite.c>
+	<IfModule mod_authz_core.c>
+		<If "%{REQUEST_URI} =~ m#/\.git(hub)?(/|$)#">
+			Require all denied
+		</If>
+	</IfModule>
+</IfModule>
+
+# Block settings, dot files and development files
+<FilesMatch "^(\..*|config(\.local)?\.php|composer\.(json|lock)|phpunit\.xml(\.dist)?|docker-compose\.yml)$">
 	<IfModule mod_authz_core.c>
 		Require all denied
 	</IfModule>

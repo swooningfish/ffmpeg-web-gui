@@ -20,6 +20,13 @@ return array(
 	//   php -r "echo password_hash('your password', PASSWORD_DEFAULT), PHP_EOL;"
 	'require_login' => true,
 	'password_hash' => '',
+	// After this many wrong passwords in a row from one IP address, each
+	// further try has to wait login_lockout seconds (0 = no limit).
+	'max_login_failures' => 5,
+	'login_lockout'      => 300,
+	// Send the login cookie over HTTPS only. null = when PHP sees an HTTPS
+	// request; set true if a proxy or load balancer handles HTTPS for you.
+	'secure_cookie' => null,
 
 	// Binaries (ffmpeg / ffprobe 4.3 or later)
 	'ffmpeg'  => '/usr/local/bin/ffmpeg',
@@ -36,7 +43,9 @@ return array(
 	// Limits. Keep max_file_size in line with upload_max_filesize and
 	// post_max_size in .htaccess / .user.ini.
 	'max_file_size'      => 104857600, // 100MB
-	'max_execution_time' => 3600,      // seconds per conversion request
+	// Seconds a conversion may take in total. ffmpeg is stopped when this runs
+	// out; keep your web server's request timeouts above it (see README).
+	'max_execution_time' => 3600,
 	'max_duration'       => 3600,      // only convert the first N seconds of a video (0 = no limit)
 	'max_output_size'    => 2147483648, // stop an output file at 2GB (0 = no limit)
 

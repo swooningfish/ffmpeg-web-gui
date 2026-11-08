@@ -8,7 +8,7 @@ Update  : 07/11/2026
 Version : 0.3 beta
 </pre>
 
-This is a PHP script for FFmpeg which allows you to upload a video and convert it into html5 (mp4 h264, webm, ogv). Using a simple graphical user interface (GUI) you are also able to fine tune the ffmpeg command and optimise the these following options:-
+This is a PHP script for FFmpeg which allows you to upload a video and convert it into html5 (mp4 h264, webm, ogv). Using a simple graphical user interface (GUI) you are also able to fine tune the ffmpeg command and optimise the following options:-
 
 * Video size
 * Video bit rate
@@ -27,8 +27,8 @@ Requirements
 
 * PHP 7.4 or later
 * ffmpeg and ffprobe 4.3 or later, built with libx264, libvpx 1.7+ (VP9) and libopus. libtheora and libvorbis are only needed for the Ogg output.
-* Apache with `AllowOverride All` for this folder (at minimum `AuthConfig Limit FileInfo Indexes Options`). The `.htaccess` files block web access to uploads, logs and settings, and **Apache ignores them under `AllowOverride None`**, which is the default on many systems. On other web servers, deny web access to `upload/`, `logs/`, `config.php`, `config.local.php` and `.user.ini` yourself. For extra safety, point `upload_dir` and `log_dir` at folders outside the web root.
-* Conversion runs inside the web request, so the request can last several minutes. With PHP-FPM, raise Apache's `ProxyTimeout` (or `Timeout`) and the pool's `request_terminate_timeout`, otherwise long conversions end with a 504 error.
+* Apache with `mod_rewrite` and `AllowOverride All` for this folder (at minimum `AuthConfig Limit FileInfo Indexes Options`). The `.htaccess` files block web access to uploads, logs, settings and repository files such as `.git/`, and **Apache ignores them under `AllowOverride None`**, which is the default on many systems. On other web servers, deny web access to `upload/`, `logs/`, `.git/`, `vendor/`, `docker/`, dot files, `config.php` and `config.local.php` yourself. For extra safety, point `upload_dir` and `log_dir` at folders outside the web root.
+* Conversion runs inside the web request, so the request can last several minutes. ffmpeg is stopped once a conversion has taken `max_execution_time` seconds (default 3600). Keep your web server's timeouts above that plus the upload time: with PHP-FPM, raise Apache's `ProxyTimeout` (or `Timeout`) and the pool's `request_terminate_timeout`, otherwise long conversions end with a 504 error and the server, not the app, stops PHP.
 
 Installation
 ------------
@@ -67,7 +67,7 @@ vendor/bin/phpunit</pre>
   <pre>docker compose up -d --build
 docker compose exec -T app bash -s &lt; tests/e2e/run.sh
 docker compose down</pre>
-  While it is running you can also try the app at http://localhost:8080/upload-and-convert.php with the password `test-password`.
+  While it is running you can also try the app at http://localhost:8080/upload-and-convert.php with the password `test-password`. The test server only listens on this computer, because that password is public.
 
 Don't run `composer install` on your live server; it is only needed for the tests.
 
@@ -75,6 +75,8 @@ Security notes
 --------------
 
 * The app requires a password unless you set `'require_login' => false`. Only do that if the site is already protected some other way.
+* After 5 wrong passwords in a row from one IP address, each further try has to wait 5 minutes (`max_login_failures`, `login_lockout`).
+* If HTTPS is handled by a proxy or load balancer, set `'secure_cookie' => true` so the login cookie is only sent over HTTPS.
 * Only one conversion runs at a time, and conversion runs inside the web request, so keep the app away from untrusted users.
 * Converted files are stored in `converted/<random id>/` and can be downloaded by anyone who has the link. Delete old folders regularly.
 * Uploaded originals are deleted after conversion by default (`delete_upload_after_convert`).
