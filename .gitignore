@@ -16,6 +16,10 @@ dwsync.xml
 .hg
 !.gitignore
 !.htaccess
-vendor/
+/vendor/
+node_modules/
+test-results/
+playwright-report/
+tests/playwright/.fixtures/
 composer.lock
 .phpunit.result.cache

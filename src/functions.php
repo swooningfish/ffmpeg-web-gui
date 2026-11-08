@@ -97,16 +97,16 @@ function formOptions()
 	);
 }
 
-/** Checkboxes and whether they are ticked by default. */
+/** Checkboxes, whether they are ticked by default, and a short hint shown under each. */
 function formCheckboxes()
 {
 	return array(
-		'encoding_video_deinterlace' => array('label' => 'Deinterlace', 'default' => true),
-		'encoding_enable_audio'      => array('label' => 'Enable audio', 'default' => true),
-		'encoding_x264'              => array('label' => 'MP4 (H.264 video, AAC audio)', 'default' => true),
-		'encoding_webm'              => array('label' => 'WebM (VP9 video, Opus audio)', 'default' => true),
-		'encoding_ogv'               => array('label' => 'Ogg (Theora video, Vorbis audio)', 'default' => false),
-		'encoding_stills'            => array('label' => 'Capture stills', 'default' => true),
+		'encoding_video_deinterlace' => array('label' => 'Deinterlace', 'default' => true, 'hint' => 'Only changes frames that are marked as interlaced.'),
+		'encoding_enable_audio'      => array('label' => 'Enable audio', 'default' => true, 'hint' => 'Turn off to make silent videos.'),
+		'encoding_x264'              => array('label' => 'MP4 (H.264 video, AAC audio)', 'default' => true, 'hint' => 'Plays in every browser and on every device.'),
+		'encoding_webm'              => array('label' => 'WebM (VP9 video, Opus audio)', 'default' => true, 'hint' => 'Smaller files at the same quality.'),
+		'encoding_ogv'               => array('label' => 'Ogg (Theora video, Vorbis audio)', 'default' => false, 'hint' => 'Only needed for very old browsers.'),
+		'encoding_stills'            => array('label' => 'Capture stills', 'default' => true, 'hint' => 'Up to five PNG frames, one a second from 0:01. The third is used as the player poster.'),
 	);
 }
 
@@ -118,6 +118,82 @@ function formValue(array $options, $key, array $post)
 		return $posted;
 	}
 	return (string)$options[$key]['default'];
+}
+
+
+// ---------------------------------------------------------------------------
+// Form rendering
+// ---------------------------------------------------------------------------
+
+/** Whether a checkbox is ticked: as posted after a conversion, otherwise its default. */
+function isChecked(array $checkboxes, $key, array $formPost)
+{
+	return $formPost ? !empty($formPost[$key]) : (bool)$checkboxes[$key]['default'];
+}
+
+/** Label and dropdown for one of formOptions(). $label overrides the option's own label. */
+function renderSelect(array $options, $key, array $formPost, $label = null)
+{
+	$current = formValue($options, $key, $formPost);
+	$html = '<label for="' . h($key) . '">' . h($label !== null ? $label : $options[$key]['label']) . '</label>'
+		. '<select name="' . h($key) . '" id="' . h($key) . '">';
+	foreach ($options[$key]['values'] as $value => $text) {
+		$selected = ((string)$value === $current) ? ' selected' : '';
+		$html .= '<option value="' . h($value) . '"' . $selected . '>' . h($text) . '</option>';
+	}
+	return $html . '</select>';
+}
+
+/** Checkbox (or switch) with its label, and its hint linked through aria-describedby. */
+function renderCheckbox(array $checkboxes, $key, array $formPost, $switch = false)
+{
+	$checked = isChecked($checkboxes, $key, $formPost) ? ' checked' : '';
+	$hint    = isset($checkboxes[$key]['hint']) ? $checkboxes[$key]['hint'] : '';
+	$html = '<label for="' . h($key) . '">'
+		. '<input type="checkbox" name="' . h($key) . '" id="' . h($key) . '" value="1"'
+		. ($switch ? ' role="switch"' : '')
+		. ($hint !== '' ? ' aria-describedby="' . h($key) . '_hint"' : '')
+		. $checked . '> ' . h($checkboxes[$key]['label']) . '</label>';
+	if ($hint !== '') {
+		$html .= '<small class="hint" id="' . h($key) . '_hint">' . h($hint) . '</small>';
+	}
+	return $html;
+}
+
+/** Radio buttons for one of formOptions(), grouped under a legend. */
+function renderRadios(array $options, $key, array $formPost)
+{
+	$current = formValue($options, $key, $formPost);
+	$html = '<fieldset class="inline"><legend>' . h($options[$key]['label']) . '</legend>';
+	foreach ($options[$key]['values'] as $value => $text) {
+		$id = $key . '_' . $value;
+		$checked = ((string)$value === $current) ? ' checked' : '';
+		$html .= '<label for="' . h($id) . '"><input type="radio" name="' . h($key) . '" id="' . h($id) . '" value="' . h($value) . '"' . $checked . '> ' . h($text) . '</label>';
+	}
+	return $html . '</fieldset>';
+}
+
+/** Bytes in a php.ini size such as "100M" or "2G". 0 means empty or no limit. */
+function iniBytes($value)
+{
+	$value = strtolower(trim((string)$value));
+	if ($value === '' || !is_numeric(rtrim($value, 'kmg'))) {
+		return 0;
+	}
+	$multipliers = array('k' => 1024, 'm' => 1048576, 'g' => 1073741824);
+	$unit = substr($value, -1);
+	$bytes = (float)rtrim($value, 'kmg') * (isset($multipliers[$unit]) ? $multipliers[$unit] : 1);
+	return max(0, (int)$bytes);
+}
+
+/**
+ * Largest upload that will actually get through: the smallest of the app's
+ * max_file_size and PHP's upload_max_filesize and post_max_size. 0 = no limit.
+ */
+function uploadLimit($maxFileSize, $uploadMaxFilesize, $postMaxSize)
+{
+	$limits = array_filter(array((int)$maxFileSize, iniBytes($uploadMaxFilesize), iniBytes($postMaxSize)));
+	return $limits ? min($limits) : 0;
 }
 
 

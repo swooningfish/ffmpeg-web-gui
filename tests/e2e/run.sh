@@ -75,6 +75,9 @@ CSRF=$(csrf_from "$PAGE")
 expect "login form is shown before logging in" page_has 'value="login"'
 expect "page sends X-Content-Type-Options" sh -c "curl -sI '$APP' | grep -qi '^x-content-type-options: nosniff'"
 expect "page sends a Content-Security-Policy" sh -c "curl -sI '$APP' | grep -qi '^content-security-policy:'"
+expect "CSP allows no inline styles or scripts" sh -c "! curl -sI '$APP' | grep -i '^content-security-policy:' | grep -q 'unsafe-inline'"
+expect "the stylesheets and icon are served" [ "$(status_of "$BASE/assets/app.css")$(status_of "$BASE/assets/vendor/pico/pico.min.css")$(status_of "$BASE/assets/icon.svg")" = "200200200" ]
+expect "page templates cannot be opened directly" [ "$(status_of "$BASE/src/views/layout.php")" = "403" ]
 
 before=$(count_job_dirs)
 convert "${all_outputs[@]}" -F "file=@$WORK/small.avi"

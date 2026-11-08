@@ -72,7 +72,15 @@ docker compose exec -T app bash -s &lt; tests/e2e/run.sh
 docker compose down</pre>
   While it is running you can also try the app at http://localhost:8080/upload-and-convert.php with the password `test-password`. The test server only listens on this computer, because that password is public.
 
-Don't run `composer install` on your live server; it is only needed for the tests.
+* **Browser tests** (needs Docker and Node.js 20+). Playwright drives Chromium through the main user journeys: logging in and out, converting a video and using the results, errors, phone and wide-screen layouts, dark mode and keyboard order. Run them on a fresh test server, before the end-to-end tests, because those finish by locking the test IP out of logging in for 5 minutes:
+  <pre>docker compose up -d --build
+npm ci
+npx playwright install chromium
+npm run test:ui
+docker compose down</pre>
+  Set `BASE_URL` to test another server. `npm run test:ui:report` opens the last report, with screenshots and traces of any failure.
+
+Don't run `composer install` or `npm ci` on your live server; they are only needed for the tests.
 
 Security notes
 --------------

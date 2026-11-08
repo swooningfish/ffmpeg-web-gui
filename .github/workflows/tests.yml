@@ -2,9 +2,9 @@ name: Tests
 
 on:
   # Branches with a pull request are tested by the pull_request event, so
-  # pushes only need testing on master
+  # pushes only need testing on main
   push:
-    branches: [master]
+    branches: [main]
   pull_request:
   workflow_dispatch:
 
@@ -50,6 +50,57 @@ jobs:
 
       - name: Run end-to-end tests
         run: docker compose exec -T app bash -s < tests/e2e/run.sh
+
+      - name: Show logs on failure
+        if: failure()
+        run: |
+          docker compose logs app
+          docker compose exec -T app sh -c 'tail -n 60 /var/www/html/logs/*.log' || true
+
+      - name: Stop the test server
+        if: always()
+        run: docker compose down
+
+  browser:
+    name: Browser tests (Playwright, Chromium)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install Playwright
+        run: |
+          npm ci --no-audit --no-fund
+          npx playwright install --with-deps chromium
+
+      # A fresh server of its own: the e2e job ends by locking its IP out of logging in
+      - name: Start the test server
+        run: docker compose up -d --build
+
+      - name: Wait for the app
+        run: |
+          for i in $(seq 1 30); do
+            curl -sf -o /dev/null http://localhost:8080/upload-and-convert.php && exit 0
+            sleep 1
+          done
+          echo "The app did not start" && exit 1
+
+      - name: Run browser tests
+        run: npx playwright test
+
+      - name: Keep the report and traces on failure
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: playwright-report
+          path: |
+            playwright-report/
+            test-results/
+          retention-days: 14
 
       - name: Show logs on failure
         if: failure()

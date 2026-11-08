@@ -1,6 +1,12 @@
 .git
 .github
 vendor
+node_modules
+test-results
+playwright-report
+package.json
+package-lock.json
+playwright.config.ts
 tests
 screenshots
 config.local.php
