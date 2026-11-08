@@ -3,9 +3,13 @@ Thumbs.db
 #ignore the following directories
 converted/*
 logs/*
+jobs/*
 upload/*
 #local settings (password hash, paths)
 config.local.php
+#Docker secret for the production compose file
+secrets/
+.env
 #misc
 .DS_Store?
 ehthumbs.db

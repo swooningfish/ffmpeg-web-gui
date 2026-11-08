@@ -167,3 +167,107 @@ fieldset.inline label {
 	border-radius: var(--pico-border-radius);
 	background: var(--pico-muted-border-color);
 }
+
+/* Upload progress (shown by app.js) */
+.upload-status {
+	margin-top: var(--pico-spacing);
+}
+.upload-status progress {
+	margin-bottom: 0.25rem;
+}
+.upload-status small {
+	color: var(--pico-muted-color);
+}
+
+/* A conversion's page */
+.back {
+	margin-bottom: 1rem;
+}
+.job-progress progress {
+	margin-bottom: 0.5rem;
+}
+.job-text {
+	margin-bottom: 0.25rem;
+	font-variant-numeric: tabular-nums;
+}
+.job-note {
+	margin: 0;
+	color: var(--pico-muted-color);
+}
+.download-size {
+	opacity: 0.8;
+}
+
+/* Recent conversions */
+.recent {
+	margin-top: calc(var(--pico-spacing) * 2.5);
+}
+.recent h2 {
+	font-size: 1.25rem;
+}
+.table-wrap {
+	overflow-x: auto;
+}
+.recent table {
+	margin-bottom: 0.5rem;
+}
+.recent td {
+	vertical-align: middle;
+}
+.recent td.name {
+	overflow-wrap: anywhere;
+	min-width: 10rem;
+}
+.recent time {
+	white-space: nowrap;
+}
+.row-actions {
+	text-align: end;
+}
+.row-actions form {
+	margin: 0;
+}
+.row-actions button {
+	width: auto;
+	margin: 0;
+	padding: 0.2rem 0.7rem;
+	font-size: 0.85rem;
+}
+.badge {
+	display: inline-block;
+	padding: 0.1rem 0.55rem;
+	border-radius: 1rem;
+	font-size: 0.8rem;
+	white-space: nowrap;
+	border: 1px solid currentColor;
+}
+.badge-done {
+	color: var(--pico-ins-color);
+}
+.badge-failed {
+	color: var(--pico-del-color);
+}
+.badge-running {
+	color: var(--pico-primary);
+}
+.badge-queued {
+	color: var(--pico-muted-color);
+}
+.visually-hidden {
+	position: absolute;
+	width: 1px;
+	height: 1px;
+	overflow: hidden;
+	clip: rect(0 0 0 0);
+	white-space: nowrap;
+}
+/* Phones: drop the date column so the name, status and Delete button fit */
+@media (max-width: 575px) {
+	.recent th:nth-child(3),
+	.recent td:nth-child(3) {
+		display: none;
+	}
+	.recent td.name {
+		min-width: 7rem;
+	}
+}

@@ -10,6 +10,7 @@ playwright.config.ts
 tests
 screenshots
 config.local.php
+secrets
 upload/*
 !upload/.htaccess
 !upload/.gitignore
@@ -19,3 +20,7 @@ converted/*
 logs/*
 !logs/.htaccess
 !logs/.gitignore
+jobs/*
+!jobs/.htaccess
+!jobs/.gitignore
+.env

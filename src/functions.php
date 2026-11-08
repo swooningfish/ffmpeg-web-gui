@@ -1,8 +1,11 @@
 <?php
 /*
 	Functions for ffmpeg web gui. Kept separate from upload-and-convert.php
-	so they can be unit tested without handling a request.
+	so they can be unit tested without handling a request. Job queueing and
+	the worker's conversion code are in jobs.php.
 */
+
+require_once __DIR__ . '/jobs.php';
 
 // File extensions we accept. The real container is confirmed with ffprobe.
 const ALLOWED_EXTENSIONS = array('mp4', 'm4v', 'mov', 'avi', 'mpg', 'mpeg', 'wmv', 'asf', 'webm', 'mkv', 'ogv', 'flv', '3gp');
@@ -563,162 +566,6 @@ function buildPlayerPage($title, $width, $height, array $videos, $poster)
 	return $html;
 }
 
-
-// ---------------------------------------------------------------------------
-// Upload and convert
-// ---------------------------------------------------------------------------
-
-/**
- * Validate the upload, convert it and return a summary of what was made.
- * Throws RuntimeException with a message that is safe to show the user.
- */
-function convertUpload(array $config, array $options, array $post, array $files)
-{
-	// 1. Check the upload and the settings
-	$file      = isset($files['file']) ? $files['file'] : null;
-	$extension = validateUpload($file, $config['max_file_size']);
-	$settings  = readSettings($options, $post);
-	$formats   = outputFormats($settings);
-	$selected  = array();
-	foreach ($formats as $key => $format) {
-		if (!empty($post[$key])) {
-			$selected[$key] = $format;
-		}
-	}
-	$wantStills = !empty($post['encoding_stills']);
-	if (!$selected && !$wantStills) {
-		throw new RuntimeException('Please choose at least one output format.');
-	}
-
-	// 2. Check the setup and make sure only one conversion runs at a time
-	foreach (array('ffmpeg', 'ffprobe') as $binary) {
-		if (!is_file($config[$binary]) || !is_executable($config[$binary])) {
-			throw new RuntimeException($binary . ' was not found at the path set in the config. Set \'' . $binary . '\' in config.local.php.');
-		}
-	}
-	foreach (array('upload_dir', 'converted_dir', 'log_dir') as $dirKey) {
-		if (!is_dir($config[$dirKey]) || !is_writable($config[$dirKey])) {
-			throw new RuntimeException('The ' . basename($config[$dirKey]) . ' folder needs write permission for the web server user.');
-		}
-	}
-	$lock = fopen($config['log_dir'] . 'convert.lock', 'c');
-	if (!$lock) {
-		throw new RuntimeException('Could not create the lock file in the logs folder.');
-	}
-	if (!flock($lock, LOCK_EX | LOCK_NB)) {
-		fclose($lock);
-		throw new RuntimeException('Another conversion is running. Please try again in a few minutes.');
-	}
-
-	// Every ffmpeg / ffprobe run shares this deadline. Stopping them here,
-	// before the web server gives up on the request, means the lock and the
-	// upload are always cleaned up and no ffmpeg is left running on its own.
-	$deadline = $config['max_execution_time'] > 0 ? time() + (int)$config['max_execution_time'] : 0;
-	$timeLeft = function () use ($deadline) {
-		return $deadline ? max(1, $deadline - time()) : 0;
-	};
-	$outOfTime = function () use ($deadline) {
-		return $deadline && time() >= $deadline;
-	};
-
-	// Files are stored under random names; the original name is never used in a path
-	$jobId      = bin2hex(random_bytes(8));
-	$baseName   = slugify(pathinfo($file['name'], PATHINFO_FILENAME));
-	$uploadPath = $config['upload_dir'] . $jobId . '.' . $extension;
-	$jobDir     = $config['converted_dir'] . $jobId . '/';
-
-	try {
-		if (!move_uploaded_file($file['tmp_name'], $uploadPath)) {
-			throw new RuntimeException('Could not save the uploaded file.');
-		}
-
-		// 3. Confirm it really is a video in a container we accept
-		$probeArgs = array($config['ffprobe'], '-v', 'error', '-protocol_whitelist', 'file',
-			'-show_entries', 'format=format_name:stream=codec_type:stream_disposition=attached_pic', '-of', 'json', $uploadPath);
-		$code = runLogged($config, 'ffprobe', $probeArgs, $probeOutput, $timeLeft());
-		if ($code !== 0 || !isAllowedVideo($probeOutput)) {
-			throw new RuntimeException('That file is not a supported video.');
-		}
-
-		if (!mkdir($jobDir, 0755)) {
-			throw new RuntimeException('Could not create the output folder.');
-		}
-
-		// 4. Convert
-		$inputArgs = array($config['ffmpeg'], '-hide_banner', '-nostdin', '-nostats', '-y', '-protocol_whitelist', 'file');
-		if ($config['max_duration'] > 0) {
-			$inputArgs[] = '-t'; // only read this many seconds of the input
-			$inputArgs[] = (string)(int)$config['max_duration'];
-		}
-		$inputArgs[] = '-i';
-		$inputArgs[] = $uploadPath;
-		// Stop runaway output (e.g. a crafted file that makes ffmpeg duplicate frames forever)
-		$sizeLimitArgs = $config['max_output_size'] > 0 ? array('-fs', (string)(int)$config['max_output_size']) : array();
-
-		$made   = array();
-		$failed = array();
-		foreach ($selected as $format) {
-			if ($outOfTime()) {
-				$failed[] = $format['label'] . ' (time limit reached)';
-				continue;
-			}
-			$outName = $baseName . '.' . $format['ext'];
-			$code = runLogged($config, 'ffmpeg', array_merge($inputArgs, $format['args'], $sizeLimitArgs, array($jobDir . $outName)), $unused, $timeLeft());
-			if ($code === 0 && is_file($jobDir . $outName) && filesize($jobDir . $outName) > 0) {
-				$made[] = array('label' => $format['label'], 'file' => $outName, 'type' => $format['type']);
-			} else {
-				@unlink($jobDir . $outName);
-				$failed[] = $format['label'] . ($code === EXIT_TIMED_OUT ? ' (time limit reached)' : ' (exit code ' . $code . ')');
-			}
-		}
-
-		// Up to five stills, one a second starting one second in
-		$stills = array();
-		if ($wantStills && $outOfTime()) {
-			$failed[] = 'Stills (time limit reached)';
-		} elseif ($wantStills) {
-			$stillArgs = array('-ss', '1', '-vf', 'fps=1,' . scaleFilter($settings['video_size']), '-frames:v', '5', $jobDir . $baseName . '_still_%d.png');
-			runLogged($config, 'ffmpeg', array_merge($inputArgs, $stillArgs), $unused, $timeLeft());
-			for ($i = 1; $i <= 5; $i++) {
-				if (is_file($jobDir . $baseName . '_still_' . $i . '.png')) {
-					$stills[] = $baseName . '_still_' . $i . '.png';
-				}
-			}
-			if (!$stills) {
-				$failed[] = 'Stills';
-			}
-		}
-
-		// 5. Player page for whatever was made
-		$player = null;
-		if ($made) {
-			list($width, $height) = array_map('intval', explode('x', $settings['video_size']));
-			$poster = $stills ? $stills[min(2, count($stills) - 1)] : null;
-			$player = $baseName . '_player.html';
-			file_put_contents($jobDir . $player, buildPlayerPage($file['name'], $width, $height, $made, $poster));
-		}
-
-		if (!$made && !$stills) {
-			@rmdir($jobDir);
-		}
-
-		return array(
-			'name'   => $file['name'],
-			'size'   => $file['size'],
-			'url'    => $config['converted_url'] . $jobId . '/',
-			'made'   => $made,
-			'stills' => $stills,
-			'player' => $player,
-			'failed' => $failed,
-		);
-	} finally {
-		if ($config['delete_upload_after_convert'] && is_file($uploadPath)) {
-			@unlink($uploadPath);
-		}
-		flock($lock, LOCK_UN);
-		fclose($lock);
-	}
-}
 
 /*
 	TODO

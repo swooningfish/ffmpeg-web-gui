@@ -37,18 +37,24 @@ return array(
 	'upload_dir'    => __DIR__ . '/upload/',
 	'converted_dir' => __DIR__ . '/converted/',
 	'log_dir'       => __DIR__ . '/logs/',
+	// Queued and finished conversions (one JSON file each). Blocked from web
+	// access by its .htaccess file.
+	'jobs_dir'      => __DIR__ . '/jobs/',
 	// URL of converted_dir, relative to upload-and-convert.php
 	'converted_url' => 'converted/',
 
 	// Limits. Keep max_file_size in line with upload_max_filesize and
 	// post_max_size in .htaccess / .user.ini.
 	'max_file_size'      => 104857600, // 100MB
-	// Seconds a conversion may take in total. ffmpeg is stopped when this runs
-	// out; keep your web server's request timeouts above it (see README).
+	// Seconds the worker may spend converting one video. ffmpeg is stopped
+	// when this runs out.
 	'max_execution_time' => 3600,
 	'max_duration'       => 3600,      // only convert the first N seconds of a video (0 = no limit)
 	'max_output_size'    => 2147483648, // stop an output file at 2GB (0 = no limit)
 
 	// Delete the original upload once conversion has finished.
 	'delete_upload_after_convert' => true,
+	// The worker deletes finished conversions (their files and their entry in
+	// the list) this many days after they finished. 0 = keep them.
+	'job_retention_days' => 7,
 );
