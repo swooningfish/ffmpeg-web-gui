@@ -1,0 +1,12 @@
+{
+  "name": "ffmpeg-web-gui-browser-tests",
+  "private": true,
+  "description": "Playwright browser tests for ffmpeg web gui. The app itself does not need Node.js.",
+  "scripts": {
+    "test:ui": "playwright test",
+    "test:ui:report": "playwright show-report"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.64.1"
+  }
+}

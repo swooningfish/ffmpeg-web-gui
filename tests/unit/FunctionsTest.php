@@ -56,6 +56,67 @@ final class FunctionsTest extends TestCase
 		$this->assertStringEndsNotWith('-', $slug);
 	}
 
+	// --- form rendering ---------------------------------------------------
+
+	public function testRenderSelectLabelsAndEscapesAndKeepsPostedValue()
+	{
+		$html = renderSelect(formOptions(), 'video_size', array('video_size' => '320x240'), 'Max <size>');
+		$this->assertStringContainsString('<label for="video_size">Max &lt;size&gt;</label>', $html);
+		$this->assertStringContainsString('<option value="320x240" selected>', $html);
+		$this->assertSame(1, substr_count($html, ' selected'));
+	}
+
+	public function testRenderSelectFallsBackToDefaultForBadInput()
+	{
+		$html = renderSelect(formOptions(), 'video_size', array('video_size' => '"><script>'));
+		$this->assertStringContainsString('<option value="560x304" selected>', $html);
+		$this->assertStringNotContainsString('<script>', $html);
+	}
+
+	public function testRenderCheckboxWrapsInputInLabelAndLinksHint()
+	{
+		$html = renderCheckbox(formCheckboxes(), 'encoding_ogv', array(), true);
+		$this->assertMatchesRegularExpression('#^<label for="encoding_ogv"><input type="checkbox" name="encoding_ogv" id="encoding_ogv" value="1" role="switch" aria-describedby="encoding_ogv_hint">#', $html);
+		$this->assertStringContainsString('<small class="hint" id="encoding_ogv_hint">', $html);
+		$this->assertStringNotContainsString(' checked', $html, 'Ogg is off by default');
+	}
+
+	public function testCheckboxesUseDefaultsUntilAFormIsPosted()
+	{
+		$boxes = formCheckboxes();
+		$this->assertTrue(isChecked($boxes, 'encoding_x264', array()));
+		$this->assertFalse(isChecked($boxes, 'encoding_x264', array('encoding_webm' => '1')), 'unticked boxes are not posted');
+		$this->assertTrue(isChecked($boxes, 'encoding_ogv', array('encoding_ogv' => '1')));
+	}
+
+	public function testRenderRadiosGroupsUnderALegend()
+	{
+		$html = renderRadios(formOptions(), 'encoding_audio_channels', array('encoding_audio_channels' => 'mono'));
+		$this->assertStringContainsString('<legend>Audio channels</legend>', $html);
+		$this->assertStringContainsString('id="encoding_audio_channels_mono" value="mono" checked>', $html);
+		$this->assertStringContainsString('id="encoding_audio_channels_stereo" value="stereo">', $html);
+	}
+
+	public function testIniBytes()
+	{
+		$this->assertSame(100 * 1048576, iniBytes('100M'));
+		$this->assertSame(2 * 1073741824, iniBytes('2g'));
+		$this->assertSame(512 * 1024, iniBytes(' 512K '));
+		$this->assertSame(1000, iniBytes('1000'));
+		$this->assertSame(0, iniBytes(''));
+		$this->assertSame(0, iniBytes('-1'));
+		$this->assertSame(0, iniBytes('lots'));
+	}
+
+	public function testUploadLimitIsTheSmallestNonZeroLimit()
+	{
+		$this->assertSame(104857600, uploadLimit(104857600, '200M', '210M'));
+		$this->assertSame(2 * 1048576, uploadLimit(104857600, '2M', '8M'));
+		$this->assertSame(8 * 1048576, uploadLimit(104857600, '100M', '8M'));
+		$this->assertSame(104857600, uploadLimit(104857600, '0', '0'), 'PHP 0 means no limit');
+		$this->assertSame(0, uploadLimit(0, '', '0'));
+	}
+
 	// --- validateUpload() --------------------------------------------------
 
 	private function upload($name, $error = UPLOAD_ERR_OK, $size = 1000)
