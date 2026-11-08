@@ -114,7 +114,9 @@ function writeJob(array $config, array $job)
 {
 	$file = jobFile($config, $job['id']);
 	$temp = $file . '.' . bin2hex(random_bytes(4)) . '.tmp';
-	if (file_put_contents($temp, json_encode($job, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES)) === false || !rename($temp, $file)) {
+	// PRESERVE_ZERO_FRACTION keeps a duration of 100.0 a float when it is read back
+	$json = json_encode($job, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_PRESERVE_ZERO_FRACTION);
+	if ($json === false || file_put_contents($temp, $json) === false || !rename($temp, $file)) {
 		@unlink($temp);
 		throw new RuntimeException('Could not save the job in the jobs folder.');
 	}

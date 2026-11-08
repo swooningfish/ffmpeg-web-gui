@@ -1,5 +1,5 @@
 <?php
-/* Convert form, with the result of the last conversion above it. */
+/* Convert form, with the recent conversions below it. */
 
 $extensions = strtoupper(implode(', ', ALLOWED_EXTENSIONS));
 $fileHint   = ($uploadLimit > 0 ? 'Up to ' . formatBytes($uploadLimit) . '. ' : '')

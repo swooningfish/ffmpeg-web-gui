@@ -20,7 +20,7 @@ if (!$loginConfigured) {
 }
 // Without JavaScript, a job page reloads itself until the conversion finishes
 $autoRefresh  = $job && in_array($job['status'], array('queued', 'running'), true);
-$assetVersion = '0.5';
+$assetVersion = '0.6';
 ?>
 <!DOCTYPE html>
 <html lang="en">

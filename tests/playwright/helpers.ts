@@ -18,8 +18,10 @@ export async function logIn(page: Page) {
 
 /** Tick or untick the output checkboxes so only the ones named are ticked. */
 export async function chooseOutputs(page: Page, outputs: { mp4?: boolean; webm?: boolean; ogg?: boolean; stills?: boolean }) {
-	await page.getByLabel(/^MP4/).setChecked(!!outputs.mp4);
-	await page.getByLabel(/^WebM/).setChecked(!!outputs.webm);
-	await page.getByLabel(/^Ogg/).setChecked(!!outputs.ogg);
+	// By role, not getByLabel: Playwright tests a getByLabel regex against the
+	// label's raw text, which starts with the space after the checkbox.
+	await page.getByRole('checkbox', { name: /^MP4/ }).setChecked(!!outputs.mp4);
+	await page.getByRole('checkbox', { name: /^WebM/ }).setChecked(!!outputs.webm);
+	await page.getByRole('checkbox', { name: /^Ogg/ }).setChecked(!!outputs.ogg);
 	await page.getByLabel('Capture stills').setChecked(!!outputs.stills);
 }
