@@ -25,7 +25,7 @@ The script also generates up to 5 stills from the video allowing you to use thes
 Requirements
 ------------
 
-* PHP 7.4 or later
+* PHP 8.4 or later. Older PHP releases have known security vulnerabilities (CVEs) and are end of life or receive security fixes only, so keep PHP patched to the latest 8.4+ release.
 * ffmpeg and ffprobe 4.3 or later, built with libx264, libvpx 1.7+ (VP9) and libopus. libtheora and libvorbis are only needed for the Ogg output.
 * Apache with `mod_rewrite` and `AllowOverride All` for this folder (at minimum `AuthConfig Limit FileInfo Indexes Options`). The `.htaccess` files block web access to uploads, logs, settings and repository files such as `.git/`, and **Apache ignores them under `AllowOverride None`**, which is the default on many systems. On other web servers, deny web access to `upload/`, `logs/`, `.git/`, `vendor/`, `docker/`, dot files, `config.php` and `config.local.php` yourself. For extra safety, point `upload_dir` and `log_dir` at folders outside the web root.
 * Conversion runs inside the web request, so the request can last several minutes. ffmpeg is stopped once a conversion has taken `max_execution_time` seconds (default 3600). Keep your web server's timeouts above that plus the upload time: with PHP-FPM, raise Apache's `ProxyTimeout` (or `Timeout`) and the pool's `request_terminate_timeout`, otherwise long conversions end with a 504 error and the server, not the app, stops PHP.

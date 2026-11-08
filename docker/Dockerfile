@@ -1,7 +1,7 @@
 # Test server: Apache + mod_php + ffmpeg, set up the way the README describes.
 # Build from the repository root:
 #   docker compose up -d --build
-FROM php:8.3-apache
+FROM php:8.4-apache
 
 # Debian's ffmpeg includes libx264, libvpx (VP9), libopus, libtheora and libvorbis
 RUN apt-get update \

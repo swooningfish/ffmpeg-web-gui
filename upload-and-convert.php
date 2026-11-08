@@ -9,7 +9,7 @@
 
 	This is a upload and convert php script for ffmpeg. Allowing you to convert video files to html5 ready video via ffmpeg.
 
-	Requires PHP 7.4+ and ffmpeg / ffprobe 4.3+.
+	Requires PHP 8.4+ and ffmpeg / ffprobe 4.3+.
 	Settings live in config.php; put your own overrides in config.local.php.
 	The conversion logic lives in src/functions.php.
 */
