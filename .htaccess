@@ -7,26 +7,66 @@
 	AddType video/webm .webm
 </IfModule>
 
-AddOutputFilterByType DEFLATE text/html text/plain text/xml application/xml application/xhtml+xml text/javascript text/css application/x-javascript
-BrowserMatch ^Mozilla/4 gzip-only-text/html
-BrowserMatch ^Mozilla/4.0[678] no-gzip
+# No directory listings; the folder URL opens the app
+Options -Indexes
+DirectoryIndex upload-and-convert.php
 
-BrowserMatch bMSIE !no-gzip !gzip-only-text/html
+# Block repository and development folders (.git, .github, vendor, docker).
+# The pattern is relative to this folder, so it works in any install path.
+<IfModule mod_rewrite.c>
+	RewriteEngine On
+	RewriteRule ^(\.git|\.github|vendor|docker)(/|$) - [F]
+</IfModule>
+# Without mod_rewrite, still block .git and .github
+<IfModule !mod_rewrite.c>
+	<IfModule mod_authz_core.c>
+		<If "%{REQUEST_URI} =~ m#/\.git(hub)?(/|$)#">
+			Require all denied
+		</If>
+	</IfModule>
+</IfModule>
 
-<ifModule mod_expires.c>
-  ExpiresActive On
-  ExpiresDefault "access plus 1 seconds"
-  ExpiresByType text/html "access plus 1 seconds"
-  ExpiresByType image/gif "access plus 2592000 seconds"
-  ExpiresByType image/jpeg "access plus 2592000 seconds"
-  ExpiresByType image/png "access plus 2592000 seconds"
-  ExpiresByType text/css "access plus 604800 seconds"
-  ExpiresByType text/javascript "access plus 216000 seconds"
-  ExpiresByType application/x-javascript "access plus 216000 seconds"
-</ifModule>
+# Block settings, dot files and development files
+<FilesMatch "^(\..*|config(\.local)?\.php|composer\.(json|lock)|phpunit\.xml(\.dist)?|docker-compose\.yml)$">
+	<IfModule mod_authz_core.c>
+		Require all denied
+	</IfModule>
+	<IfModule !mod_authz_core.c>
+		Order allow,deny
+		Deny from all
+	</IfModule>
+</FilesMatch>
 
-php_value memory_limit 1000M
-php_value upload_max_filesize 1000M
-php_value post_max_size 1500M
-php_value max_execution_time 20000
-php_value max_input_time 20000
+<IfModule mod_headers.c>
+	Header always set X-Content-Type-Options "nosniff"
+	Header always set Referrer-Policy "same-origin"
+</IfModule>
+
+<IfModule mod_deflate.c>
+	<IfModule mod_filter.c>
+		AddOutputFilterByType DEFLATE text/html text/plain text/xml application/xml application/xhtml+xml text/javascript text/css application/x-javascript
+	</IfModule>
+</IfModule>
+
+<IfModule mod_expires.c>
+	ExpiresActive On
+	ExpiresDefault "access plus 1 seconds"
+	ExpiresByType text/html "access plus 1 seconds"
+	ExpiresByType image/gif "access plus 2592000 seconds"
+	ExpiresByType image/jpeg "access plus 2592000 seconds"
+	ExpiresByType image/png "access plus 2592000 seconds"
+	ExpiresByType text/css "access plus 604800 seconds"
+	ExpiresByType text/javascript "access plus 216000 seconds"
+	ExpiresByType application/x-javascript "access plus 216000 seconds"
+</IfModule>
+
+# PHP limits for mod_php. PHP-FPM / CGI read the same values from .user.ini.
+# Keep upload_max_filesize in line with max_file_size in config.php.
+<IfModule mod_php.c>
+	php_value memory_limit 256M
+	php_value upload_max_filesize 100M
+	php_value post_max_size 110M
+	php_value max_execution_time 3600
+	php_value max_input_time 3600
+	php_flag display_errors Off
+</IfModule>

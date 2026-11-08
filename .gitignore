@@ -4,6 +4,8 @@ Thumbs.db
 converted/*
 logs/*
 upload/*
+#local settings (password hash, paths)
+config.local.php
 #misc
 .DS_Store?
 ehthumbs.db
@@ -13,3 +15,7 @@ dwsync.xml
 .svn
 .hg
 !.gitignore
+!.htaccess
+vendor/
+composer.lock
+.phpunit.result.cache

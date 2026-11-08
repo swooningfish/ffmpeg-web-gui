@@ -1,0 +1,15 @@
+.git
+.github
+vendor
+tests
+screenshots
+config.local.php
+upload/*
+!upload/.htaccess
+!upload/.gitignore
+converted/*
+!converted/.htaccess
+!converted/.gitignore
+logs/*
+!logs/.htaccess
+!logs/.gitignore

@@ -2,341 +2,162 @@
 
 /*
 	Name    : ffmpeg web gui
-    Author  : Greg Colley
-    Created : 03/12/2011
-    Update  : 17/10/2014
-    Version : 0.2 beta
+	Author  : Greg Colley
+	Created : 03/12/2011
+	Update  : 07/11/2026
+	Version : 0.3 beta
 
-    This is a upload an convert php script for ffmpeg. Allowing you to convert video files to html5 ready video via ffmpeg.
-	
+	This is a upload and convert php script for ffmpeg. Allowing you to convert video files to html5 ready video via ffmpeg.
 
+	Requires PHP 8.4+ and ffmpeg / ffprobe 4.3+.
+	Settings live in config.php; put your own overrides in config.local.php.
+	The conversion logic lives in src/functions.php.
 */
 
-function logFile($logPath = '', $logName = null, $startingLogName = null)
+ini_set('display_errors', '0');
+ini_set('log_errors', '1');
+error_reporting(E_ALL);
+
+require __DIR__ . '/src/functions.php';
+
+$config = require __DIR__ . '/config.php';
+if (is_file(__DIR__ . '/config.local.php')) {
+	$localConfig = require __DIR__ . '/config.local.php';
+	if (!is_array($localConfig)) {
+		http_response_code(500);
+		exit('config.local.php must return an array of settings, e.g. <?php return array(\'password_hash\' => \'...\');');
+	}
+	$config = array_replace($config, $localConfig);
+}
+// A little longer than the conversion deadline, so ffmpeg is always stopped
+// and cleaned up by convertUpload() before PHP gives up
+set_time_limit($config['max_execution_time'] > 0 ? (int)$config['max_execution_time'] + 60 : 0);
+
+$options    = formOptions();
+$checkboxes = formCheckboxes();
+
+
+// ---------------------------------------------------------------------------
+// Request handling
+// ---------------------------------------------------------------------------
+
+header('X-Content-Type-Options: nosniff');
+header('X-Frame-Options: DENY');
+header("Content-Security-Policy: default-src 'self'; style-src 'self' 'unsafe-inline'; frame-ancestors 'none'; form-action 'self'");
+
+session_set_cookie_params(array(
+	'httponly' => true,
+	'samesite' => 'Lax',
+	'secure'   => $config['secure_cookie'] !== null
+		? (bool)$config['secure_cookie']
+		: !empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off',
+));
+session_start();
+if (empty($_SESSION['csrf'])) {
+	$_SESSION['csrf'] = bin2hex(random_bytes(32));
+}
+$csrfToken = $_SESSION['csrf'];
+
+$errors = array();
+$result = null;
+
+$loginConfigured = !$config['require_login'] || $config['password_hash'] !== '';
+$loggedIn = !$config['require_login'] || !empty($_SESSION['logged_in']);
+$action = isset($_POST['action']) && is_string($_POST['action']) ? $_POST['action'] : '';
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+	$csrfOk = isset($_POST['csrf']) && is_string($_POST['csrf']) && hash_equals($csrfToken, $_POST['csrf']);
+
+	if ($action === '' && !empty($_SERVER['CONTENT_LENGTH'])) {
+		// PHP drops the whole request body when it is bigger than post_max_size
+		$errors[] = 'The file is larger than the server upload limit.';
+	} elseif (!$csrfOk) {
+		$errors[] = 'Your session expired. Please try again.';
+	} elseif ($action === 'login' && $loginConfigured && $config['require_login']) {
+		$password = isset($_POST['password']) && is_string($_POST['password']) ? $_POST['password'] : '';
+		$ip = isset($_SERVER['REMOTE_ADDR']) ? (string)$_SERVER['REMOTE_ADDR'] : '';
+		try {
+			$wait = loginAttemptStart($config, $ip);
+			if ($wait > 0) {
+				$errors[] = 'Too many incorrect passwords. Please try again in ' . ceil($wait / 60) . ' minute(s).';
+			} elseif (password_verify($password, $config['password_hash'])) {
+				loginSucceeded($config, $ip);
+				session_regenerate_id(true);
+				$_SESSION['logged_in'] = true;
+				$loggedIn = true;
+			} else {
+				sleep(1); // slow down password guessing
+				$errors[] = 'Incorrect password.';
+			}
+		} catch (RuntimeException $e) {
+			$errors[] = $e->getMessage();
+		}
+	} elseif ($action === 'logout') {
+		$_SESSION = array();
+		session_regenerate_id(true);
+		$_SESSION['csrf'] = $csrfToken = bin2hex(random_bytes(32));
+		$loggedIn = !$config['require_login'];
+	} elseif ($action === 'convert' && $loginConfigured && $loggedIn) {
+		// Release the session lock so other tabs aren't blocked while ffmpeg runs
+		session_write_close();
+		try {
+			$result = convertUpload($config, $options, $_POST, $_FILES);
+		} catch (RuntimeException $e) {
+			$errors[] = $e->getMessage();
+		}
+	}
+}
+
+// Keep the user's choices after a conversion, otherwise use the defaults
+$formPost = $action === 'convert' ? $_POST : array();
+
+function isChecked(array $checkboxes, $key, array $formPost)
 {
-	if (file_exists($logPath.$logName))
-	{
-		$fileSize = filesize($logPath.$logName);
-		//if file size is 3mb or bigger
-		if ($fileSize >= 999999999993145728)
-		{
-			$newLogName = 'overflow.log';
-			//$newLogName = $this->rename_if_exists($logPath,$startingLogName);
-			$log = $logPath.$newLogName;
-			$logName = $newLogName;
-			$fh = fopen($log, "a") or die("can't open file");
-			clearstatcache();
-			chmod($log, 0777);
-			clearstatcache();
-		}
-		else
-		{
-			$log = $logPath.$logName;
-		}
-
-	}
-	else
-	{
-		$log = $logPath.$logName;
-		fopen($log, 'a') or die("can't open file");
-		clearstatcache();
-		chmod($log, 0777);
-		clearstatcache();
-	}
-	return array($log, $logPath, $logName);
+	return $formPost ? !empty($formPost[$key]) : $checkboxes[$key]['default'];
 }
 
-function logText($file, $text){
-	$log = fopen($file, 'a') or die("can't open file");
-	fwrite($log, $text);
-	fclose($log);
+function renderSelect(array $options, $key, array $formPost)
+{
+	$current = formValue($options, $key, $formPost);
+	$html = '<select name="' . h($key) . '" id="' . h($key) . '">';
+	foreach ($options[$key]['values'] as $value => $label) {
+		$selected = ((string)$value === $current) ? ' selected' : '';
+		$html .= '<option value="' . h($value) . '"' . $selected . '>' . h($label) . '</option>';
+	}
+	return $html . '</select>';
 }
 
-set_time_limit(0);
-ini_set('display_errors','On');
-
-
-// 104857600 = 100MB
-// 209715200 = 200MB
-// 314572800 = 300MB
-$maxFileSize = 104857600;
-$allowedMimeTypes = array('video/avi','video/mp4','video/mpeg','video/quicktime','video/x-msvideo','video/msvideo','video/x-ms-wmv');
-
-$error 				= false;
-$uploadSuccess 		= false;
-$stillImages		= false;
-$renderHTML5 		= false;
-
-$newline 			= "\n";
-$fileSplit 			= '_';
-$timeStamp 			= time();
-$filePath 			= realpath('./').'/';
-$webPath 			= '/ffmpeg_web_gui/';
-$ffmpegCommand 		= '/usr/local/bin/ffmpeg'; // x264, xbix, ora, gsm, lame, faac, swscale, 0.5
-$qt_faststart 		= '/usr/local/bin/qt-faststart';
-
-$uploadLocation 	= 'upload/';
-$convertedLocation 	= 'converted/';
-
-
-if (isset($_FILES) && $_FILES) {
-
-	if (!is_writable($uploadLocation)) {
-		echo "Upload dir needs write permission";
-		/*
-		# example file permissions fix for Apache users on Linux
-		sudo chown -R www-data:www-data upload/
-		sudo chmod -R 755 upload/
-		*/
-		exit;
-	}
-
-	// Custom Settings
-
-	// Video
-	$videoSize 			= isset($_POST['video_size']) 					? $_POST['video_size'] 		: '640x360';
-	$videoBitrate 		= isset($_POST['video_bitrate'])				? (int)$_POST['video_bitrate'] 	: '700';
-	$videoFramerate		= isset($_POST['video_framerate'])				? (int)$_POST['video_framerate'] : '30';
-	$videoDeinterlace	= isset($_POST['encoding_video_deinterlace'])	? 1 : 0 ;
-
-	// Adudio
-	$audioEnabled		= isset($_POST['encoding_enable_audio'])		? 1 : 0 ;
-	$audioSamplerate	= isset($_POST['encoding_audio_sampling_rate'])	? (int)$_POST['encoding_audio_sampling_rate'] : '44100';
-	$audioBitrate		= isset($_POST['encoding_audio_bitrate'])		? (int)$_POST['encoding_audio_bitrate'] : '128';
-	$audioChannels		= (isset($_POST['encoding_audio_channels']) && $_POST['encoding_audio_channels']	== 'stereo')	? 2 : 1 ;
-
-	// Build up the ffmpeg params from the values posted from the html form
-	$customParams  = ' -s '.$videoSize; 				// Format the video size
-	$customParams .= ' -b:v '.$videoBitrate.'k'; 		// Format the video bit rate
-	$customParams .= ' -r '.$videoFramerate;			// Format the video frame rate
-
-	if ($videoDeinterlace) {
-		$customParams .= ' -deinterlace ';				// Deinterlace the video
-	}
-	if ($audioEnabled) {
-		$customParams .= ' -ar '.$audioSamplerate;		// Audio sample rate
-		$customParams .= ' -ab '.$audioBitrate.'k';		// Audio bit rate
-		$customParams .= ' -ac '.$audioChannels;		// Audio Channels
-	}
-	else
-	{
-		$customParams .= ' -an '; 						// Disable audio
-	}
-	$customParams .= ' -y ';							// Overwrite existing file
-
-
-	// Check the uploaded mime type
-	if (in_array($_FILES["file"]["type"],$allowedMimeTypes ))
-	{
-		// Check the uploaded file size 
-		if ($_FILES["file"]["size"] < $maxFileSize || $maxFileSize == 0) {
-		
-			if ($_FILES["file"]["error"] > 0)
-			{
-				$error =  "Return Code: " . $_FILES["file"]["error"];
-			}
-			else
-			{
-				$uploadSuccess  = "Upload: " . $_FILES["file"]["name"] . "<br />";
-				$uploadSuccess .= "Type: " . $_FILES["file"]["type"] . "<br />";
-				$uploadSuccess .= "Size: " . $_FILES["file"]["size"] . " bytes<br />";
-				$uploadSuccess .= "Temp file: " . $_FILES["file"]["tmp_name"] . "<br />";
-				$uploadedFilename = $timeStamp.$fileSplit.strtolower($_FILES["file"]["name"]);
-
-				if (file_exists($uploadLocation . $uploadedFilename))
-				{
-					$error = 'Error - '.$uploadedFilename. " already exists. ";
-				}
-				else
-				{
-
-					move_uploaded_file($_FILES["file"]["tmp_name"],$uploadLocation . $uploadedFilename);
-					$uploadSuccess .= "Stored in: " . $uploadLocation . $uploadedFilename;
-
-					$file_uploaded = $uploadLocation . $uploadedFilename;
-					$source_ext = pathinfo($uploadedFilename, PATHINFO_EXTENSION);
-
-					// Try and make a folder for neater file structure.
-					if(!file_exists($filePath.$convertedLocation.$timeStamp))
-					{
-						mkdir($filePath.$convertedLocation.$timeStamp);
-						$uploadSuccess .= '<a href="'.$convertedLocation.$timeStamp.'/">View converted videos</a>';
-						$convertedLocation = $convertedLocation.$timeStamp.'/';
-					}
-					else
-					{
-						$uploadSuccess .= '<a href="'.$convertedLocation.'">View converted videos</a>';
-					}
-
-
-					// Mp4 x264
-					if (isset($_POST['encoding_x264'])) {
-
-
-						$command = escapeshellcmd($ffmpegCommand.' -i '.$filePath.$file_uploaded.' -vcodec libx264  -vsync 1  -bt 50k ');
-						if ($audioEnabled) {
-							$command = $command.' -acodec libfaac ';
-						}
-						$command = escapeshellcmd($command.$customParams.'  '.$filePath.$convertedLocation.$uploadedFilename.'_x264.mp4  2>&1');
-						exec($command, $output, $status);
-						$output = 'File: '.$file_uploaded."\n".implode("\n", $output);
-						// Log to file
-						list($log, $logPath, $logName)=logFile($filePath.'logs/','video_processs_'.date('d-m-Y').'.log');
-						logText($logPath.$logName, $output);
-
-						// run qt-faststart
-						// This is a useful tool if you're showing your H.264 MP4 videos on the web.
-						// It relocates some data in the video to allow playback to begin before the file is completely downloaded.
-						// Usage: qt-faststart input.mp4 output.mp4.
-						$command = escapeshellcmd($qt_faststart.' '.$filePath.$convertedLocation.$uploadedFilename.'_x264.mp4 '.$filePath.$convertedLocation.$uploadedFilename.'_x264_qt_faststart.mp4  2>&1');
-						exec($command, $output, $status);
-						$output = 'File: '.$file_uploaded."\n".implode("\n", $output);
-						// Log to file
-						list($log, $logPath, $logName)=logFile($filePath.'logs/','video_qt_faststart_'.date('d-m-Y').'.log');
-						logText($logPath.$logName, $output);
-
-					}
-
-					// Ogv file
-					if (isset($_POST['encoding_ogv'])) {
-						$command = $ffmpegCommand.' -i '.$filePath.$file_uploaded;
-						if ($audioEnabled) {
-							$command = $command.' -acodec libvorbis ';
-						}
-						$command = escapeshellcmd($command.$customParams.' '.$filePath.$convertedLocation.$uploadedFilename.'.ogv  2>&1');
-						exec($command, $output, $status);
-						$output = 'File: '.$file_uploaded."\n".implode("\n", $output);
-						// Log to file
-						list($log, $logPath, $logName)=logFile($filePath.'logs/','video_processs_'.date('d-m-Y').'.log');
-						logText($logPath.$logName, $output);
-					}
-
-					// Webm file
-					if (isset($_POST['encoding_webm'])) {
-						$command = escapeshellcmd($ffmpegCommand.' -i '.$filePath.$file_uploaded.$customParams.$filePath.$convertedLocation.$uploadedFilename.'.webm  2>&1');
-						exec($command, $output, $status);
-						$output = 'File: '.$file_uploaded."\n".implode("\n", $output);
-						// Log to file
-						list($log, $logPath, $logName)=logFile($filePath.'logs/','video_processs_'.date('d-m-Y').'.log');
-						logText($logPath.$logName, $output);
-					}
-
-					// Screen shots
-					if (isset($_POST['encoding_stills'])) {
-						$command = escapeshellcmd($ffmpegCommand.' -i '.$filePath.$file_uploaded.' -s '.$videoSize.' -r 1 -vframes 5 -ss 00:01 -y '.$filePath.$convertedLocation.$uploadedFilename.'_stills_%d.png  2>&1');
-						exec($command, $output, $status);
-						$output = 'File: '.$file_uploaded."\n".implode("\n", $output);
-						// Log to file
-						list($log, $logPath, $logName)=logFile($filePath.'logs/','video_processs_'.date('d-m-Y').'.log');
-						logText($logPath.$logName, $output);
-						$stillImages = '<br/>';
-						for($frame_i = 1; $frame_i < 5; $frame_i++){
-							$stillImages .= '<img src="'.$convertedLocation.$uploadedFilename.'_stills_'.$frame_i.'.png" width="100" />';
-						}
-					}
-
-					// Check if we can render the html5 player html
-					if (isset($_POST['encoding_x264']) && isset($_POST['encoding_ogv']) && isset($_POST['encoding_webm']) && isset($_POST['encoding_stills'])) {
-						$renderHTML5 = true;
-					}
-
-					/*
-
-					   TODO
-
-						iPod / iPhone
-						-acodec aac -ab 128kb -vcodec mpeg4 -b 1200kb -mbd 2 -flags +4mv+trell -aic 2 -cmp 2 -subcmp 2 -s 320x180
-
-						PSP
-						-b:v 300-s 320x240 -vcodec xvid -ab 32 -ar 24000 -acodec aac fin
-
-						// Extracting sound from a video, and save it as Mp3
-						ffmpeg -i source_video.avi -vn -ar 44100 -ac 2 -ab 192 -f mp3 sound.mp3
-
-						Convert to animated gif(uncompressed)
-						ffmpeg -i video_origine.avi gif_anime.gif
-
-						Convert .avi to .flv
-						ffmpeg -i video_origine.avi -ab 56 -ar 44100 -b 200 -r 15 -s 320x240 -f flv
-
-						Convert .avi to mpeg for dvd players
-						ffmpeg -i temp.mp4 -target pal-dvd -ps 2000000000 -aspect 16:9 finale_video.mpeg
-
-						Compress .avi to divx
-						ffmpeg -i temp.avi -y -vcodec msmpeg4v2 video_finale.avi
-					*/
-
-					if ($renderHTML5) {
-						// Render the HTML5 Player in html
-						$w_x_h 	= explode('x',$videoSize);
-						$width	=(is_array($w_x_h) && key_exists('0',$w_x_h)) ? $w_x_h[0] : '640';
-						$height	=(is_array($w_x_h) && key_exists('1',$w_x_h)) ? $w_x_h[1] : '360';
-
-						$output_start = "<html><head></head><body>";
-						if ($stillImages) {
-							$output = $stillImages;
-						}
-						else
-						{
-							$output = "";
-						}
-						
-						$output = '<!-- "Video For Everybody" http://camendesign.com/code/video_for_everybody -->'.$newline;
-						$output .= '<video controls="controls" poster="http://'.$_SERVER['HTTP_HOST'].$webPath.$convertedLocation.$uploadedFilename.'_stills_3.png" width="'.$width.'" height="'.$height.'">'.$newline;
-						$output .= '	<source src="http://'.$_SERVER['HTTP_HOST'].$webPath.$convertedLocation.$uploadedFilename.'_x264_qt_faststart.mp4" type="video/mp4" />'.$newline;
-						$output .= '	<source src="http://'.$_SERVER['HTTP_HOST'].$webPath.$convertedLocation.$uploadedFilename.'.webm" type="video/webm" />'.$newline;
-						$output .= '	<source src="http://'.$_SERVER['HTTP_HOST'].$webPath.$convertedLocation.$uploadedFilename.'.ogv" type="video/ogg" />'.$newline;
-						$output .= '	<object type="application/x-shockwave-flash" data="http://flashfox.googlecode.com/svn/trunk/flashfox.swf"  width="'.$width.'" height="'.$height.'">'.$newline;
-						$output .= '		<param name="movie" value="http://flashfox.googlecode.com/svn/trunk/flashfox.swf" />'.$newline;
-						$output .= '		<param name="allowFullScreen" value="true" />'.$newline;
-						$output .= '		<param name="wmode" value="transparent" />'.$newline;
-						$output .= '		<param name="flashVars" value="controls=true&amp;poster='.urlencode('http://'.$_SERVER['HTTP_HOST'].$webPath.$convertedLocation.$uploadedFilename.'_stills_3.png').'&amp;src='.urlencode('http://'.$_SERVER['HTTP_HOST'].$webPath.$convertedLocation.$uploadedFilename.'_x264_qt_faststart.mp4').'" />'.$newline;
-						$output .= '		<img alt="Video" src="http://'.$_SERVER['HTTP_HOST'].$webPath.$convertedLocation.$uploadedFilename.'_stills_3.png"  width="'.$width.'" height="'.$height.'" title="No video playback capabilities, please download the video below" />'.$newline;
-						$output .= '	</object>'.$newline;
-						$output .= '</video>'.$newline;
-						$output .= '<p>'.$newline;
-						$output .= '	<strong>Download video:</strong> <a href="http://'.$_SERVER['HTTP_HOST'].$webPath.$convertedLocation.$uploadedFilename.'_x264_qt_faststart.mp4">MP4 format</a> | <a href="http://'.$_SERVER['HTTP_HOST'].$webPath.$convertedLocation.$uploadedFilename.'.ogv">Ogg format</a> | <a href="http://'.$_SERVER['HTTP_HOST'].$webPath.$convertedLocation.$uploadedFilename.'.webm">WebM format</a>'.$newline;
-						$output .= '</p>'.$newline;
-						$output_end = '</body></html>'.$newline;
-
-						list($log, $logPath, $logName)=logFile($filePath.$convertedLocation,$uploadedFilename.'_html5_player_.html');
-						logText($logPath.$logName, $output_start.$output.$output_end);
-
-						// redirect to the html player
-						header('Location: http://'.$_SERVER['HTTP_HOST'].$webPath.$convertedLocation.$uploadedFilename.'_html5_player_.html');
-					}
-				}
-			}
-		}
-		else
-		{
-			$error = "Error - Invalid file size<br />";
-			$error .= "Size: " . $_FILES["file"]["size"] . " bytes<br />";
-		}
-	}
-	else
-	{
-		$error  = "Error - Invalid file type<br />";
-		$error .= "Type: " . $_FILES["file"]["type"] . "<br />";
-	}
+function renderCheckbox(array $checkboxes, $key, array $formPost)
+{
+	$checked = isChecked($checkboxes, $key, $formPost) ? ' checked' : '';
+	return '<label for="' . h($key) . '">' . h($checkboxes[$key]['label']) . '</label>'
+		. '<input type="checkbox" name="' . h($key) . '" id="' . h($key) . '" value="1" class="checkbox"' . $checked . ' />';
 }
 ?>
-<html>
+<!DOCTYPE html>
+<html lang="en">
 <head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
 	<title>FFmpeg GUI</title>
 	<style type="text/css">
+	body {
+		font-family: sans-serif;
+	}
 	.clear {
 		clear:both;
 	}
 	.error {
-		color:#f00;
-		font-wight:bold;
+		color:#c00;
+		font-weight:bold;
 		padding:10px;
 	}
 	.uploadSuccess {
 		color:#45862d;
-		font-wight:bold;
 		padding:10px;
+	}
+	.uploadSuccess img {
+		margin:4px 4px 0 0;
 	}
 	.fieldset {
 		clear:both;
@@ -354,177 +175,147 @@ if (isset($_FILES) && $_FILES) {
 		width:auto;
 		float:left;
 	}
+	.logout {
+		float:right;
+	}
 	</style>
 </head>
 <body>
 
 	<h1>ffmpeg web gui</h1>
-	<?php
-	if ($error) {
-		echo '<div class="error">'.$error.'</div>';
-	}
-	if ($uploadSuccess) {
-		echo '<div class="uploadSuccess">'.$uploadSuccess.'</div>';
-	}
-	?>
 
-	<form action="" method="post"enctype="multipart/form-data">
+<?php if (!$loginConfigured): ?>
+	<div class="error">
+		Set a password before using ffmpeg web gui. Create <code>config.local.php</code> next to this file containing:
+		<pre>&lt;?php
+return array('password_hash' =&gt; 'PASTE HASH HERE');</pre>
+		Generate the hash with: <code>php -r "echo password_hash('your password', PASSWORD_DEFAULT), PHP_EOL;"</code>
+	</div>
+
+<?php elseif (!$loggedIn): ?>
+	<?php foreach ($errors as $error): ?>
+		<div class="error"><?php echo h($error); ?></div>
+	<?php endforeach; ?>
+	<form action="" method="post">
+		<input type="hidden" name="csrf" value="<?php echo h($csrfToken); ?>" />
+		<input type="hidden" name="action" value="login" />
+		<div class="fieldset">
+			<label for="password">Password:</label>
+			<input type="password" name="password" id="password" autocomplete="current-password" autofocus />
+		</div>
+		<div class="fieldset">
+			<input type="submit" value="Log in" />
+		</div>
+	</form>
+
+<?php else: ?>
+	<?php if ($config['require_login']): ?>
+	<form action="" method="post" class="logout">
+		<input type="hidden" name="csrf" value="<?php echo h($csrfToken); ?>" />
+		<input type="hidden" name="action" value="logout" />
+		<input type="submit" value="Log out" />
+	</form>
+	<?php endif; ?>
+
+	<?php foreach ($errors as $error): ?>
+		<div class="error"><?php echo h($error); ?></div>
+	<?php endforeach; ?>
+
+	<?php if ($result): ?>
+		<?php if ($result['failed']): ?>
+		<div class="error">
+			Failed: <?php echo h(implode(', ', $result['failed'])); ?>. See the ffmpeg log in the logs folder for details.
+		</div>
+		<?php endif; ?>
+		<?php if ($result['made'] || $result['stills']): ?>
+		<div class="uploadSuccess">
+			Converted <strong><?php echo h($result['name']); ?></strong> (<?php echo h(formatBytes($result['size'])); ?>).
+			<?php if ($result['player']): ?>
+				<br /><a href="<?php echo h($result['url'] . $result['player']); ?>">Open the HTML5 player</a>
+			<?php endif; ?>
+			<?php if ($result['made']): ?>
+				<br />Download:
+				<?php foreach ($result['made'] as $i => $video): ?>
+					<?php echo $i ? ' | ' : ''; ?><a href="<?php echo h($result['url'] . $video['file']); ?>" download><?php echo h($video['label']); ?></a>
+				<?php endforeach; ?>
+			<?php endif; ?>
+			<?php if ($result['stills']): ?>
+				<br />
+				<?php foreach ($result['stills'] as $still): ?>
+					<a href="<?php echo h($result['url'] . $still); ?>"><img src="<?php echo h($result['url'] . $still); ?>" width="100" alt="Still" /></a>
+				<?php endforeach; ?>
+			<?php endif; ?>
+		</div>
+		<?php endif; ?>
+	<?php endif; ?>
+
+	<form action="" method="post" enctype="multipart/form-data">
+		<input type="hidden" name="csrf" value="<?php echo h($csrfToken); ?>" />
+		<input type="hidden" name="action" value="convert" />
+
 		<div class="fieldset">
 			<label for="file">Video file:</label>
-			<input type="file" name="file" id="file" accept="video/*" />
-		</div>
-
-
-		<div class="fieldset">
-			<label for="file">Video Size:</label>  <!-- -b:v 700k-->
-			<select name="video_size">
-				<option value="800x600">800x600 (4:3)</option>
-				<option value="704x576">704x576</option>
-				<option value="640x360">640x360 (16:9)</option>
-				<option value="560x304" selected="selected">560x304</option>
-				<option value="512x384">512x384</option>
-				<option value="400x300">400x300</option>
-				<option value="320x240">320x240</option>
-
-			</select>
-		</div>
-
-
-		<div class="fieldset">
-			<label for="file">Video Bitrate:</label>  <!-- -b:v 700k-->
-			<select name="video_bitrate">
-				<option value="1600">1600 kbit/s</option>
-				<option value="1000">1000 kbit/s</option>
-				<option value="900">900 kbit/s</option>
-				<option value="800">800 kbit/s</option>
-				<option value="768">768 kbit/s</option>
-				<option value="700" selected="selected">700 kbit/s</option>
-				<option value="360">360 kbit/s</option>
-			</select>
-		</div>
-
-		<div class="fieldset">
-			<label for="file">Frame Rate:</label>  <!-- -b:v 700k-->
-			<select name="video_framerate">
-				<option value="30" selected="selected">30 fps</option>
-				<option value="25">25 fps</option>
-				<option value="15">15 fps</option>
-				<option value="12">12 fps</option>
-			</select>
-		</div>
-
-		<div class="fieldset">
-			<label>Deinterlace</label>
-			<input type="checkbox" name="encoding_video_deinterlace" checked="checked" class="checkbox" />
-		</div>
-
-
-		<div class="fieldset">
-			<label>Enable Audio</label>
-			<input type="checkbox" name="encoding_enable_audio" checked="checked" class="checkbox" />
-		</div>
-
-
-		<div class="fieldset">
-			<label for="file">Audio sampling rate (in Hz):</label> <!-- -ar 44100 -->
-			<select name="encoding_audio_sampling_rate">
-				<option value="44100" selected="selected">44100 Mz</option>
-				<option value="22050">22050 Mz</option>
-				<option value="11025">11025 Mz</option>
-			</select>
-		</div>
-
-		<div class="fieldset">
-			<label for="file">Audio bitrate (kbps):</label> <!-- -ab 128k -->
-			<select name="encoding_audio_bitrate">
-				<option value="320">320 kbps</option>
-				<option value="256">256 kbps (DAB Quality)</option>
-				<option value="192">192 kbps (CD Quality)</option>
-				<option value="128" selected="selected">128 kbps</option>
-				<option value="96">96 kbps </option>
-				<option value="32">32 kbps </option>
-				<option value="8">8 kbps (Telephone quality)</option>
-			</select>
-		</div>
-
-		<div class="fieldset">
-			<label>Stereo</label>
-			<input type="radio" name="encoding_audio_channels" checked="checked" value="stereo" class="checkbox"  />
+			<input type="file" name="file" id="file" accept="video/*,<?php echo h('.' . implode(',.', ALLOWED_EXTENSIONS)); ?>" required />
 		</div>
 		<div class="fieldset">
-			<label>Mono</label>
-			<input type="radio" name="encoding_audio_channels" value="mono" class="checkbox" />
+			<label for="video_size">Video size (max):</label>
+			<?php echo renderSelect($options, 'video_size', $formPost); ?>
 		</div>
+		<div class="fieldset">
+			<label for="video_bitrate">Video bitrate:</label>
+			<?php echo renderSelect($options, 'video_bitrate', $formPost); ?>
+		</div>
+		<div class="fieldset">
+			<label for="video_framerate">Frame rate:</label>
+			<?php echo renderSelect($options, 'video_framerate', $formPost); ?>
+		</div>
+		<div class="fieldset">
+			<?php echo renderCheckbox($checkboxes, 'encoding_video_deinterlace', $formPost); ?>
+		</div>
+		<div class="fieldset">
+			<?php echo renderCheckbox($checkboxes, 'encoding_enable_audio', $formPost); ?>
+		</div>
+		<div class="fieldset">
+			<label for="encoding_audio_sampling_rate">Audio sampling rate:</label>
+			<?php echo renderSelect($options, 'encoding_audio_sampling_rate', $formPost); ?>
+		</div>
+		<div class="fieldset">
+			<label for="encoding_audio_bitrate">Audio bitrate:</label>
+			<?php echo renderSelect($options, 'encoding_audio_bitrate', $formPost); ?>
+		</div>
+		<?php foreach ($options['encoding_audio_channels']['values'] as $value => $label): ?>
+		<div class="fieldset">
+			<label for="channels_<?php echo h($value); ?>"><?php echo h($label); ?></label>
+			<input type="radio" name="encoding_audio_channels" id="channels_<?php echo h($value); ?>" value="<?php echo h($value); ?>" class="checkbox"<?php echo formValue($options, 'encoding_audio_channels', $formPost) === $value ? ' checked' : ''; ?> />
+		</div>
+		<?php endforeach; ?>
 		<div class="clear"></div>
 
-		<h2>HTML5 Video Compatable</h2>
+		<h2>HTML5 Video Compatible</h2>
 		<div class="fieldset">
-			<label>x264 (audio codec libfaac) </label>
-			<input type="checkbox" name="encoding_x264" checked="checked" class="checkbox" />
+			<?php echo renderCheckbox($checkboxes, 'encoding_x264', $formPost); ?>
 		</div>
 		<div class="fieldset">
-			<label>ogv (audio codec libvorbis) </label>
-			<input type="checkbox" name="encoding_ogv"  checked="checked"  class="checkbox"/>
+			<?php echo renderCheckbox($checkboxes, 'encoding_webm', $formPost); ?>
 		</div>
-
 		<div class="fieldset">
-			<label>webm </label>
-			<input type="checkbox" name="encoding_webm"  checked="checked" class="checkbox" />
+			<?php echo renderCheckbox($checkboxes, 'encoding_ogv', $formPost); ?>
 		</div>
-			<div class="fieldset">
-			<label>Capture stills</label>
-			<input type="checkbox" name="encoding_stills"  checked="checked" class="checkbox" />
+		<div class="fieldset">
+			<?php echo renderCheckbox($checkboxes, 'encoding_stills', $formPost); ?>
 		</div>
-
 		<div class="clear"></div>
 
 		<!-- Todo
 		<h2>Other Encodings</h2>
-
-		<div class="fieldset">
-			<label>iPod / iPhone</label>
-			<input type="checkbox" name="encoding_ipod_iphone"  class="checkbox" />
-			<span>(320x180)</span>
-		</div>
-
-		<div class="fieldset">
-			<label>PSP</label>
-			<input type="checkbox" name="encoding_psp"   class="checkbox"/>
-			<span>(320x240)</span>
-		</div>
-
-		<div class="fieldset">
-			<label>Animated gif (uncompressed)</label>
-			<input type="checkbox" name="encoding_psp"  class="checkbox" />
-		</div>
-
-
-		<div class="fieldset">
-			<label>Extract mp3 from video</label>
-			<input type="checkbox" name="encoding_extract_audio"  class="checkbox" />
-		</div>
-
-		<div class="fieldset">
-			<label>Convert to flv</label>
-			<input type="checkbox" name="encoding_flv"  class="checkbox" />
-		</div>
-
-		<div class="fieldset">
-			<label>Convert to mpeg for dvd players</label>
-			<input type="checkbox" name="encoding_dvd"  class="checkbox" />
-		</div>
-
-		<div class="fieldset">
-			<label>Convert encode divx</label>
-			<input type="checkbox" name="encoding_divx"  class="checkbox" />
-		</div>
-
-		<div class="clear"></div>
+		iPod / iPhone (320x180), PSP (320x240), animated gif, extract mp3,
+		flv, mpeg for dvd players, divx
 		-->
 
-		<input type="submit" name="submit" value="Upload and convert" />
-
+		<p>Conversion runs while you wait and can take several minutes for large files.</p>
+		<input type="submit" value="Upload and convert" />
 	</form>
+<?php endif; ?>
 
 </body>
 </html>
