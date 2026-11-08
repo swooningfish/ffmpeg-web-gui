@@ -16,3 +16,6 @@ dwsync.xml
 .hg
 !.gitignore
 !.htaccess
+vendor/
+composer.lock
+.phpunit.result.cache

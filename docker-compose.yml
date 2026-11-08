@@ -1,0 +1,11 @@
+# Local test server for ffmpeg web gui.
+#   docker compose up -d --build
+#   open http://localhost:8080/upload-and-convert.php  (password: test-password)
+#   docker compose exec -T app bash -s < tests/e2e/run.sh   (end-to-end tests)
+services:
+  app:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    ports:
+      - "8080:80"

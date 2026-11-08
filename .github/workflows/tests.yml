@@ -1,0 +1,59 @@
+name: Tests
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  unit:
+    name: Lint and unit tests (PHP ${{ matrix.php }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        php: ['7.4', '8.0', '8.1', '8.2', '8.3', '8.4']
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ matrix.php }}
+          coverage: none
+          tools: composer
+
+      - name: Syntax check
+        run: |
+          find . -name '*.php' -not -path './vendor/*' -print0 \
+            | xargs -0 -n 1 php -l
+
+      - name: Install PHPUnit
+        run: composer install --no-interaction --no-progress
+
+      - name: Unit tests
+        run: vendor/bin/phpunit
+
+  e2e:
+    name: End-to-end tests (Docker, Apache, ffmpeg)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Start the test server
+        run: docker compose up -d --build
+
+      - name: Run end-to-end tests
+        run: docker compose exec -T app bash -s < tests/e2e/run.sh
+
+      - name: Show logs on failure
+        if: failure()
+        run: |
+          docker compose logs app
+          docker compose exec -T app sh -c 'tail -n 60 /var/www/html/logs/*.log' || true
+
+      - name: Stop the test server
+        if: always()
+        run: docker compose down

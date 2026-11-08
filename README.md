@@ -55,6 +55,22 @@ To update your copy run the following command in the ffmpeg-web-gui directory.
   git pull
 </pre>
 
+Running the tests
+-----------------
+
+GitHub Actions runs every test on each push and pull request (see `.github/workflows/tests.yml`). To run them yourself:
+
+* **Syntax check and unit tests** (needs PHP and Composer):
+  <pre>composer install
+vendor/bin/phpunit</pre>
+* **End-to-end tests** (needs Docker). These start Apache with ffmpeg, convert real test videos, and check that uploads of PHP files, fake videos and playlists are rejected and that private folders return 403:
+  <pre>docker compose up -d --build
+docker compose exec -T app bash -s &lt; tests/e2e/run.sh
+docker compose down</pre>
+  While it is running you can also try the app at http://localhost:8080/upload-and-convert.php with the password `test-password`.
+
+Don't run `composer install` on your live server; it is only needed for the tests.
+
 Security notes
 --------------
 
