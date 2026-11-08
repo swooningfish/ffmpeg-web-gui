@@ -117,7 +117,32 @@ Suggested order: 1 → 2 → 3, then decide on 4 and 5. Phase 2 already covers m
 
 **Not verified yet.** No PHP or Docker was available while building, so PHP syntax, the unit tests, the e2e tests and Playwright still need to run in CI or in Docker. The layout was checked with a static render of the templates at desktop and phone widths, in light and dark mode.
 
-**Next:** Phase 4 (background jobs). It needs the hosting, queue and retention answers above.
+**Phase 4, background jobs: done on `ui-jobs` (PR into `ui`).** Decisions taken on 8 Nov 2026:
+- **Everything runs in Docker.** A production compose file was added alongside the test one.
+- **Uploads queue** instead of being refused while a conversion runs.
+- **Finished conversions are deleted after 7 days** (`job_retention_days`).
+
+What changed:
+- The web request only checks the upload, runs ffprobe and writes a job file to `jobs/`. It then redirects (303) to `?job=<id>`, so a refresh never sends the upload again.
+- `src/worker.php` converts queued jobs one at a time, holding `logs/convert.lock`. It writes ffmpeg's `-progress` output beside the job file and deletes old jobs every 10 minutes. On start it marks jobs that were left running as interrupted.
+- **Job page:**
+  - A progress bar, the current step ("WebM (2 of 3)"), an ETA and the queue position.
+  - `assets/app.js` checks `?job=<id>&format=json` every 1.5 s. Without JavaScript the page refreshes itself every 5 s.
+  - When the job finishes, the page shows the results card, with file sizes on the download buttons.
+- **Convert page:**
+  - `assets/app.js` checks the file size before uploading and shows an upload progress bar. It also stops double submits and switches the audio settings off with "Enable audio".
+  - A "Recent conversions" list (latest 20) has status badges and Delete buttons, with a confirmation step when JavaScript is on. A running job can't be deleted.
+- **Docker:**
+  - The Dockerfile has `production` and `test` stages.
+  - `docker-compose.yml` (test) and `docker-compose.prod.yml` (production) both run an `app` and a `worker` container from one image, sharing volumes for `upload/`, `converted/`, `logs/` and `jobs/`.
+  - In production the password hash comes from a Docker secret (`secrets/password_hash`). Other settings come from `FFMPEG_GUI_*` environment variables.
+- **Settings:** they are now loaded by `loadConfig()` in this order: `config.php`, then `config.local.php`, then environment variables. The web page and the worker share it.
+- **Tests:**
+  - Unit tests (`tests/unit/JobsTest.php`) cover the job store, the queue order, deleting and clean-up, reading progress, status text and config loading.
+  - The e2e tests now wait on job pages. They also check queueing behind a held lock, deleting, CSRF on delete, retention clean-up, status JSON access, and that `jobs/` is blocked from the web.
+  - Playwright now follows the upload through to the results and deletes from the recent list. It checks the size limit before upload, and that the app works without JavaScript.
+
+**Next:** Phase 3 (results polish, player page restyle), then Phase 5 (modern presets) and Phase 7 (YouTube Shorts). Shorts still need the crop-control and length answers above.
 
 ## Open questions
 

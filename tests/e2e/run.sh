@@ -35,14 +35,35 @@ audio_channels() { ffprobe -v error -select_streams a -show_entries stream=chann
 video_codec() { ffprobe -v error -select_streams v -show_entries stream=codec_name -of csv=p=0 "$1" | head -n 1; }
 video_width() { ffprobe -v error -select_streams v -show_entries stream=width -of csv=p=0 "$1" | head -n 1; }
 
-# All output formats, 320x240, with audio. Extra curl arguments are appended.
+# Wait for the worker to finish the conversion at URL (its ?job= page), then
+# save that page in $PAGE.
+wait_for_job() {
+	local url=$1 state=
+	for _ in $(seq 1 300); do
+		state=$(curl -s -b "$JAR" "$url&format=json" | grep -o '"status":"[a-z]*"' | cut -d '"' -f 4)
+		case "$state" in done|failed) break ;; esac
+		sleep 1
+	done
+	curl -s -c "$JAR" -b "$JAR" -o "$PAGE" "$url"
+}
+# Upload a video, 320x240 by default. Extra curl arguments are appended.
+# An accepted upload redirects to its ?job= page; this waits for the worker
+# to convert it, so $PAGE ends up with the results. A refused upload leaves
+# the form with its error in $PAGE. $JOB_URL is the job page, or empty.
 convert() {
-	curl -s --max-time 600 -c "$JAR" -b "$JAR" -o "$PAGE" \
+	JOB_URL=$(curl -s --max-time 600 -c "$JAR" -b "$JAR" -o "$PAGE" -L -w '%{url_effective}' \
 		-F "csrf=$CSRF" -F action=convert \
 		-F video_size=320x240 -F video_bitrate=360 -F video_framerate=25 \
 		-F encoding_audio_sampling_rate=44100 -F encoding_audio_bitrate=128 -F encoding_audio_channels=stereo \
-		"$@" "$APP"
+		"$@" "$APP")
+	case "$JOB_URL" in
+		*job=*) wait_for_job "$JOB_URL" ;;
+		*) JOB_URL= ;;
+	esac
 }
+count_job_files() { find "$WEBROOT/jobs" -maxdepth 1 -name '*.json' | wc -l; }
+# grep -q PATTERN in the job status JSON at URL
+status_has() { curl -s -b "$JAR" "$1&format=json" | grep -q "$2"; }
 all_outputs=(-F encoding_enable_audio=1 -F encoding_x264=1 -F encoding_webm=1 -F encoding_ogv=1 -F encoding_stills=1)
 # Folder of the conversion shown on the page, e.g. /var/www/html/converted/0123456789abcdef
 job_dir() { local rel; rel=$(grep -o 'converted/[0-9a-f]\{16\}/' "$PAGE" | head -n 1); [ -n "$rel" ] && echo "$WEBROOT/$rel"; }
@@ -104,7 +125,9 @@ expect "nothing is converted without a valid CSRF token" [ "$(count_job_dirs)" =
 echo "Converting a normal video (all formats)"
 convert "${all_outputs[@]}" -F "file=@$WORK/main.mp4"
 JOB=$(job_dir)
+expect "the upload redirects to its conversion page" [ -n "$JOB_URL" ]
 expect "conversion reports success" page_has 'Converted'
+expect "the conversion page says it is ready" page_has 'Your video is ready'
 expect "no conversion failures are reported" page_lacks 'Failed:'
 expect "a job folder is created" [ -n "$JOB" ]
 JOB=${JOB:-/nonexistent}
@@ -120,6 +143,14 @@ expect "player page exists" [ -s "$JOB/main_player.html" ]
 expect "player page has no Flash fallback" sh -c "! grep -q shockwave '$JOB/main_player.html'"
 expect "player page uses the third still as poster" grep -q 'poster="main_still_3.png"' "$JOB/main_player.html"
 expect "the uploaded original is deleted" [ "$(uploads_left)" = "0" ]
+JOB_ID=$(basename "$JOB")
+expect "the job is recorded as done" grep -q '"status": "done"' "$WEBROOT/jobs/$JOB_ID.json"
+expect "job status JSON reports done" status_has "$JOB_URL" '"status":"done"'
+expect "job status JSON needs a login" [ "$(status_of "$APP?job=$JOB_ID&format=json")" = "403" ]
+expect "an unknown job is not found" [ "$(curl -s -o /dev/null -w '%{http_code}' -b "$JAR" "$APP?job=0123456789abcdef")" = "404" ]
+expect "a malformed job id is not found" [ "$(curl -s -o /dev/null -w '%{http_code}' -b "$JAR" "$APP?job=../../config")" = "404" ]
+curl -s -c "$JAR" -b "$JAR" -o "$PAGE" "$APP"
+expect "the form page lists the conversion" page_has "?job=$JOB_ID"
 expect "ffmpeg log is written" sh -c "ls '$WEBROOT'/logs/ffmpeg_*.log >/dev/null 2>&1"
 expect "log has no stray '2>&1' output argument" sh -c "! grep -q \"'2>&1'\" '$WEBROOT'/logs/ffmpeg_*.log"
 
@@ -157,6 +188,7 @@ expect "filename is escaped in the player page" sh -c "! grep -q '<img src=x' '$
 # ---------------------------------------------------------------------------
 echo "Rejected uploads"
 before=$(count_job_dirs)
+before_jobs=$(count_job_files)
 convert "${all_outputs[@]}" -F "file=@$WORK/shell.php;type=video/mp4"
 expect "PHP file sent as video/mp4 is rejected" page_has 'Unsupported file type'
 
@@ -170,6 +202,8 @@ convert "${all_outputs[@]}" -F "file=@$WORK/playlist.mp4"
 expect "HLS playlist named .mp4 is rejected" page_has 'That file is not a supported video.'
 
 expect "no job folders are created for rejected uploads" [ "$(count_job_dirs)" = "$before" ]
+expect "no jobs are queued for rejected uploads" [ "$(count_job_files)" = "$before_jobs" ]
+expect "rejected uploads stay on the form page" [ -z "$JOB_URL" ]
 expect "no PHP file is left anywhere in the web root" [ -z "$(find "$WEBROOT/upload" "$WEBROOT/converted" -name '*.php*')" ]
 expect "rejected uploads are deleted" [ "$(uploads_left)" = "0" ]
 
@@ -180,15 +214,37 @@ convert -F "file=@$WORK/small.avi"
 expect "converting with no outputs ticked is rejected" page_has 'Please choose at least one output format.'
 
 # ---------------------------------------------------------------------------
-echo "One conversion at a time"
+echo "Queue: one conversion at a time"
+# Hold the lock the worker takes while converting, as if a conversion were running
 LOCK="$WEBROOT/logs/convert.lock"
 touch "$LOCK" && chown www-data:www-data "$LOCK"
-flock -o "$LOCK" sleep 20 &
+flock -o "$LOCK" sleep 30 &
 LOCK_PID=$!
 sleep 1
-convert -F encoding_x264=1 -F "file=@$WORK/small.avi"
-expect "a second conversion is refused while one is running" page_has 'Another conversion is running.'
+QUEUED_URL=$(curl -s --max-time 120 -c "$JAR" -b "$JAR" -o "$PAGE" -L -w '%{url_effective}' \
+	-F "csrf=$CSRF" -F action=convert -F encoding_x264=1 -F video_size=320x240 -F "file=@$WORK/small.avi" "$APP")
+expect "an upload is accepted while another conversion runs" page_has 'Waiting to convert'
+sleep 3
+expect "it stays queued while the other conversion runs" status_has "$QUEUED_URL" '"status":"queued"'
 kill "$LOCK_PID" 2>/dev/null; wait "$LOCK_PID" 2>/dev/null
+wait_for_job "$QUEUED_URL"
+expect "it is converted once the other conversion has finished" page_has 'Your video is ready'
+
+# ---------------------------------------------------------------------------
+echo "Deleting conversions"
+DEL_ID=${QUEUED_URL##*job=}
+curl -s -c "$JAR" -b "$JAR" -o "$PAGE" -F "csrf=$CSRF" -F action=delete_job -F "job=$DEL_ID" "$APP"
+expect "a deleted conversion's folder is removed" [ ! -e "$WEBROOT/converted/$DEL_ID" ]
+expect "a deleted conversion's job file is removed" [ ! -e "$WEBROOT/jobs/$DEL_ID.json" ]
+curl -s -c "$JAR" -b "$JAR" -o "$PAGE" -F "csrf=bad-token" -F action=delete_job -F "job=$JOB_ID" "$APP"
+expect "delete without a valid CSRF token is rejected" [ -e "$WEBROOT/jobs/$JOB_ID.json" ]
+
+convert -F encoding_x264=1 -F "file=@$WORK/small.avi"
+OLD_ID=${JOB_URL##*job=}
+php -r '$f = $argv[1]; $j = json_decode(file_get_contents($f), true); $j["finished"] = time() - 8 * 86400; file_put_contents($f, json_encode($j));' "$WEBROOT/jobs/$OLD_ID.json"
+su -s /bin/sh www-data -c "php '$WEBROOT/src/worker.php' --once" >/dev/null
+expect "the worker deletes conversions older than job_retention_days" sh -c "[ ! -e '$WEBROOT/jobs/$OLD_ID.json' ] && [ ! -e '$WEBROOT/converted/$OLD_ID' ]"
+expect "newer conversions are kept" [ -e "$WEBROOT/jobs/$JOB_ID.json" ]
 
 # ---------------------------------------------------------------------------
 echo "Web access to private files"
@@ -197,7 +253,7 @@ ANY_JOB=${ANY_JOB#"$WEBROOT/"}
 echo '<?php echo "pwned";' > "$WEBROOT/converted/${ANY_JOB#converted/}/planted.php"
 echo '<?php echo "pwned";' > "$WEBROOT/upload/planted.php"
 LOG_NAME=$(basename "$(ls "$WEBROOT"/logs/ffmpeg_*.log | head -n 1)")
-for path in upload/ upload/planted.php logs/ "logs/$LOG_NAME" logs/convert.lock \
+for path in upload/ upload/planted.php logs/ "logs/$LOG_NAME" logs/convert.lock jobs/ "jobs/$JOB_ID.json" jobs/jobs.lock src/worker.php src/views/layout.php \
 	config.php config.local.php .user.ini src/ src/functions.php \
 	converted/ "$ANY_JOB/" "$ANY_JOB/planted.php"; do
 	code=$(status_of "$BASE/$path")
@@ -210,7 +266,7 @@ mkdir -p "$WEBROOT/.git" "$WEBROOT/.github" "$WEBROOT/vendor" "$WEBROOT/emptydir
 echo '[remote "origin"]' > "$WEBROOT/.git/config"
 echo 'name: x' > "$WEBROOT/.github/ci.yml"
 echo '<?php echo "pwned";' > "$WEBROOT/vendor/autoload.php"
-for path in .git/ .git/config .github/ci.yml vendor/ vendor/autoload.php docker/ docker/Dockerfile 	composer.json phpunit.xml.dist docker-compose.yml .gitignore .gitattributes .htaccess emptydir/; do
+for path in .git/ .git/config .github/ci.yml vendor/ vendor/autoload.php docker/ docker/Dockerfile 	composer.json phpunit.xml.dist docker-compose.yml docker-compose.prod.yml .gitignore .gitattributes .htaccess emptydir/; do
 	code=$(status_of "$BASE/$path")
 	expect "/$path is blocked ($code)" [ "$code" = "403" ]
 done

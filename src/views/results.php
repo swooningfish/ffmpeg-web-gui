@@ -18,7 +18,7 @@
 		<a href="<?php echo h($result['url'] . $result['player']); ?>" role="button">Open the HTML5 player</a>
 		<?php endif; ?>
 		<?php foreach ($result['made'] as $video): ?>
-		<a href="<?php echo h($result['url'] . $video['file']); ?>" role="button" class="secondary outline" download>Download <?php echo h($video['label']); ?></a>
+		<a href="<?php echo h($result['url'] . $video['file']); ?>" role="button" class="secondary outline" download>Download <?php echo h($video['label']); ?><?php if (isset($video['size'])): ?> <small class="download-size">(<?php echo h(formatBytes($video['size'])); ?>)</small><?php endif; ?></a>
 		<?php endforeach; ?>
 	</div>
 	<?php endif; ?>

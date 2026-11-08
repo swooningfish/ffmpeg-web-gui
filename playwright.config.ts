@@ -9,8 +9,7 @@ import { defineConfig, devices } from '@playwright/test';
 		npx playwright install chromium
 		npm run test:ui
 
-	Run them before tests/e2e/run.sh, or on a fresh container: run.sh ends by
-	locking the test IP out of logging in for a few minutes.
+	The worker container converts the uploads, so it must be running too.
 */
 export default defineConfig({
 	testDir: './tests/playwright',

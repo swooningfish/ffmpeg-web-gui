@@ -1,0 +1,59 @@
+# ffmpeg web gui on a real server: the web app and the worker that converts
+# queued videos. See "Running with Docker" in the README.
+#
+#   mkdir -p secrets
+#   docker run --rm php:8.4-cli php -r "echo password_hash('your password', PASSWORD_DEFAULT);" > secrets/password_hash
+#   chmod 644 secrets/password_hash
+#   docker compose -f docker-compose.prod.yml up -d --build
+#
+# Put it behind an HTTPS reverse proxy (Caddy, nginx, Traefik...) and set
+# FFMPEG_GUI_SECURE_COOKIE=true, or the password is sent unencrypted.
+# Settings can be changed with environment variables (see CONFIG_ENV in
+# src/jobs.php) or a .env file next to this one, e.g.
+#   FFMPEG_GUI_PORT=127.0.0.1:8080
+#   FFMPEG_GUI_SECURE_COOKIE=true
+#   FFMPEG_GUI_JOB_RETENTION_DAYS=14
+
+x-app: &app
+  build:
+    context: .
+    dockerfile: docker/Dockerfile
+    target: production
+  image: ffmpeg-web-gui:latest
+  restart: unless-stopped
+  environment:
+    FFMPEG_GUI_PASSWORD_HASH_FILE: /run/secrets/password_hash
+    FFMPEG_GUI_SECURE_COOKIE: ${FFMPEG_GUI_SECURE_COOKIE:-}
+    FFMPEG_GUI_JOB_RETENTION_DAYS: ${FFMPEG_GUI_JOB_RETENTION_DAYS:-}
+  secrets:
+    - password_hash
+  # Uploads, conversions, logs and the job queue survive rebuilds and restarts
+  volumes:
+    - upload:/var/www/html/upload
+    - converted:/var/www/html/converted
+    - logs:/var/www/html/logs
+    - jobs:/var/www/html/jobs
+
+services:
+  app:
+    <<: *app
+    ports:
+      # Defaults to every network interface. Use 127.0.0.1:8080 when a reverse
+      # proxy on the same machine handles HTTPS.
+      - "${FFMPEG_GUI_PORT:-8080}:80"
+
+  worker:
+    <<: *app
+    command: ["php", "/var/www/html/src/worker.php"]
+    user: www-data
+    init: true
+
+secrets:
+  password_hash:
+    file: ./secrets/password_hash
+
+volumes:
+  upload:
+  converted:
+  logs:
+  jobs:
